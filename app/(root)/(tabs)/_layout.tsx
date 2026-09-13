@@ -1,6 +1,7 @@
 import React from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { Tabs } from "expo-router";
+import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import {
   Home01Icon,
@@ -8,6 +9,7 @@ import {
   SparklesIcon,
   Notification01Icon,
   User03Icon,
+  DashboardSquare03Icon
 } from "@hugeicons/core-free-icons";
 import AnimatedTabIcon from "@/components/AnimatedTabIcon";
 import AnimatedPressable from "@/components/ui/AnimatedPressable";
@@ -15,6 +17,40 @@ import { useAppState } from "@/lib/app-state";
 
 export default function TabLayout() {
   const { unreadCount } = useAppState();
+
+  // iOS gets the real system tab bar (Liquid Glass on iOS 26+); Android keeps
+  // the custom floating JS tab bar below.
+  if (Platform.OS === "ios") {
+    return (
+      <NativeTabs>
+        <NativeTabs.Trigger name="home">
+          <NativeTabs.Trigger.Icon sf={{ default: "house", selected: "house.fill" }} />
+          <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="requests">
+          <NativeTabs.Trigger.Icon
+            sf={{ default: "list.bullet.clipboard", selected: "list.bullet.clipboard.fill" }}
+          />
+          <NativeTabs.Trigger.Label>Requests</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="ai">
+          <NativeTabs.Trigger.Icon sf="sparkles" />
+          <NativeTabs.Trigger.Label>AI</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="alerts">
+          <NativeTabs.Trigger.Icon sf={{ default: "bell", selected: "bell.fill" }} />
+          <NativeTabs.Trigger.Label>Alerts</NativeTabs.Trigger.Label>
+          {unreadCount > 0 && (
+            <NativeTabs.Trigger.Badge>{String(unreadCount)}</NativeTabs.Trigger.Badge>
+          )}
+        </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="profile">
+          <NativeTabs.Trigger.Icon sf={{ default: "person", selected: "person.fill" }} />
+          <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
+      </NativeTabs>
+    );
+  }
 
   return (
     <Tabs
@@ -45,7 +81,7 @@ export default function TabLayout() {
         name="home"
         options={{
           tabBarIcon: ({ focused }) => (
-            <AnimatedTabIcon icon={Home01Icon} label="Home" focused={focused} />
+            <AnimatedTabIcon icon={DashboardSquare03Icon} label="Home" focused={focused} />
           ),
         }}
       />

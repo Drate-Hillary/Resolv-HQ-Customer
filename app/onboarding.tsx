@@ -116,7 +116,7 @@ export default function Onboarding() {
             extrapolate: "clamp",
           });
           return (
-            <View key={slide.title} style={{ width: SCREEN_WIDTH }} className="items-center px-10 pt-10">
+            <View key={slide.title} style={{ width: SCREEN_WIDTH }} className="items-center justify-center px-10 pt-10">
               <Animated.View
                 style={{ transform: [{ scale }], opacity }}
                 className="mb-10 h-40 w-40 items-center justify-center rounded-full bg-neutral-50"
