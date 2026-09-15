@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -10,9 +12,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
-import { SendIcon, SparklesIcon } from "@hugeicons/core-free-icons";
+import { Attachment01Icon, SendIcon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { useAppState } from "@/lib/app-state";
 import { RequestStatus } from "@/lib/types";
+import { pickDocumentAttachment, pickImageAttachment } from "@/lib/attachments";
 import ScreenHeader from "@/components/ui/ScreenHeader";
 import StatusPill from "@/components/ui/StatusPill";
 import Card from "@/components/ui/Card";
@@ -32,25 +35,62 @@ const STATUS_COPY: Record<RequestStatus, string> = {
 
 export default function RequestDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getRequest, sendRequestMessage, submitRequestFeedback } = useAppState();
+  const { getRequest, loadRequestDetail, sendRequestMessage, addRequestAttachment, submitRequestFeedback } =
+    useAppState();
   const request = getRequest(String(id));
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (id) loadRequestDetail(String(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   if (!request) return <Redirect href="/requests" />;
 
-  const handleSend = () => {
-    if (!draft.trim()) return;
-    sendRequestMessage(request.id, draft.trim());
+  const handleSend = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
     setDraft("");
+    await sendRequestMessage(request.id, text);
+    setSending(false);
   };
 
-  const handleFeedback = () => {
-    if (rating === 0) return;
-    submitRequestFeedback(request.id, rating, comment.trim() || undefined);
-    setSubmitted(true);
+  const handleAttach = () => {
+    Alert.alert("Add attachment", "Choose a photo or a document", [
+      {
+        text: "Photo",
+        onPress: async () => {
+          const asset = await pickImageAttachment();
+          if (!asset) return;
+          const message = await sendRequestMessage(request.id, "");
+          if (message) await addRequestAttachment(request.id, message.id, asset);
+        },
+      },
+      {
+        text: "Document",
+        onPress: async () => {
+          const asset = await pickDocumentAttachment();
+          if (!asset) return;
+          const message = await sendRequestMessage(request.id, "");
+          if (message) await addRequestAttachment(request.id, message.id, asset);
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const handleFeedback = async () => {
+    if (rating === 0 || submittingFeedback) return;
+    setSubmittingFeedback(true);
+    const { error } = await submitRequestFeedback(request.id, rating, comment.trim() || undefined);
+    setSubmittingFeedback(false);
+    if (!error) setSubmitted(true);
   };
 
   return (
@@ -113,7 +153,12 @@ export default function RequestDetail() {
                   className="mt-4 min-h-[64px] rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 font-manrope-medium text-[13px] text-black"
                 />
                 <View className="mt-3">
-                  <Button label="Submit feedback" onPress={handleFeedback} disabled={rating === 0} />
+                  <Button
+                    label="Submit feedback"
+                    onPress={handleFeedback}
+                    disabled={rating === 0}
+                    loading={submittingFeedback}
+                  />
                 </View>
               </Card>
             )}
@@ -133,15 +178,24 @@ export default function RequestDetail() {
               MESSAGES
             </Text>
             <View className="mb-4">
-              {request.messages.map((m) => (
-                <RequestMessageBubble key={m.id} message={m} />
-              ))}
+              {!request.detailsLoaded ? (
+                <ActivityIndicator color="#000000" />
+              ) : (
+                request.messages.map((m) => <RequestMessageBubble key={m.id} message={m} />)
+              )}
             </View>
           </View>
         </ScrollView>
 
         <View className="border-t border-neutral-100 px-4 pb-8 pt-3">
           <View className="flex-row items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1.5">
+            <AnimatedPressable
+              scaleTo={0.85}
+              onPress={handleAttach}
+              className="h-9 w-9 items-center justify-center rounded-full"
+            >
+              <HugeiconsIcon icon={Attachment01Icon} size={17} color="#737373" />
+            </AnimatedPressable>
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -153,7 +207,7 @@ export default function RequestDetail() {
             <AnimatedPressable
               scaleTo={0.85}
               onPress={handleSend}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || sending}
               className={`h-9 w-9 items-center justify-center rounded-full ${
                 draft.trim() ? "bg-black" : "bg-neutral-200"
               }`}

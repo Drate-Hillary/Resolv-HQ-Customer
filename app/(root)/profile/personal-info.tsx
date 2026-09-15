@@ -13,9 +13,19 @@ export default function PersonalInfo() {
   const [email, setEmail] = useState(user.email);
   const [phone, setPhone] = useState(user.phone);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSave = () => {
-    updateProfile({ name, email, phone });
+  const handleSave = async () => {
+    if (saving) return;
+    setError(null);
+    setSaving(true);
+    const { error: saveError } = await updateProfile({ name, email, phone });
+    setSaving(false);
+    if (saveError) {
+      setError(saveError);
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -45,7 +55,14 @@ export default function PersonalInfo() {
           <Text className="mb-6 font-manrope-medium text-[12px] text-neutral-400">
             Member since {user.memberSince} · {user.plan}
           </Text>
-          <Button label={saved ? "Saved ✓" : "Save changes"} onPress={handleSave} />
+          {error && (
+            <Text className="mb-4 font-manrope-medium text-[13px] text-red-600">{error}</Text>
+          )}
+          <Button
+            label={saved ? "Saved ✓" : "Save changes"}
+            onPress={handleSave}
+            loading={saving}
+          />
         </View>
       </ScrollView>
     </SafeAreaView>

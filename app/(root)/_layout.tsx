@@ -7,6 +7,7 @@ export default function RootGroupLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="request/[id]" options={{ animation: "slide_from_right" }} />
       <Stack.Screen name="request/create" options={{ presentation: "modal" }} />
+      <Stack.Screen name="ai-history" options={{ animation: "slide_from_right" }} />
       <Stack.Screen name="help" options={{ animation: "slide_from_right" }} />
       <Stack.Screen name="help/[slug]" options={{ animation: "slide_from_right" }} />
       <Stack.Screen name="profile/personal-info" options={{ animation: "slide_from_right" }} />

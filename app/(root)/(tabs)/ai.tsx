@@ -8,8 +8,15 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
-import { Mic01Icon, RefreshIcon, SendIcon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+  Clock01Icon,
+  Mic01Icon,
+  RefreshIcon,
+  SendIcon,
+  SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import { useAppState } from "@/lib/app-state";
 import { ChatMessage } from "@/lib/types";
 import ChatBubble from "@/components/ChatBubble";
@@ -17,6 +24,7 @@ import IconButton from "@/components/ui/IconButton";
 import AnimatedPressable from "@/components/ui/AnimatedPressable";
 
 export default function AiAssistant() {
+  const router = useRouter();
   const { chatMessages, sendChatMessage, rateChatMessage, resetChat } = useAppState();
   const [draft, setDraft] = useState("");
   const listRef = useRef<FlatList<ChatMessage>>(null);
@@ -48,7 +56,10 @@ export default function AiAssistant() {
               </Text>
             </View>
           </View>
-          <IconButton icon={RefreshIcon} onPress={resetChat} />
+          <View className="flex-row items-center gap-2">
+            <IconButton icon={Clock01Icon} onPress={() => router.push("/ai-history")} />
+            <IconButton icon={RefreshIcon} onPress={resetChat} />
+          </View>
         </View>
 
         <FlatList

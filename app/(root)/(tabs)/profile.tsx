@@ -30,8 +30,8 @@ export default function Profile() {
   const router = useRouter();
   const { user, signOut } = useAppState();
 
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    await signOut();
     router.replace("/sign-in");
   };
 

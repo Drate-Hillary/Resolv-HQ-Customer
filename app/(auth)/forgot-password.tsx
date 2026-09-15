@@ -5,22 +5,29 @@ import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { Mail01Icon, MailSend01Icon } from "@hugeicons/core-free-icons";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
+import { useAppState } from "@/lib/app-state";
 import ScreenHeader from "@/components/ui/ScreenHeader";
 import Button from "@/components/ui/Button";
 
 export default function ForgotPassword() {
   const router = useRouter();
+  const { sendPasswordReset } = useAppState();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSend = () => {
-    if (email.trim().length < 4) return;
+  const handleSend = async () => {
+    if (email.trim().length < 4 || loading) return;
+    setError(null);
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setSent(true);
-    }, 700);
+    const { error: resetError } = await sendPasswordReset(email.trim());
+    setLoading(false);
+    if (resetError) {
+      setError(resetError);
+      return;
+    }
+    setSent(true);
   };
 
   return (
@@ -53,6 +60,10 @@ export default function ForgotPassword() {
                   className="flex-1 font-manrope-medium text-[14px] text-black"
                 />
               </View>
+
+              {error && (
+                <Text className="mt-3 font-manrope-medium text-[13px] text-red-600">{error}</Text>
+              )}
 
               <View className="mt-8">
                 <Button label="Send reset link" onPress={handleSend} loading={loading} />

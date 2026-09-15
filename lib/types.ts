@@ -13,11 +13,22 @@ export interface TimelineStep {
   timestamp?: string;
 }
 
+export interface RequestAttachment {
+  id: string;
+  fileUrl: string;
+  fileName: string;
+  fileType: string | null;
+  fileSizeBytes: number | null;
+  createdAt: string;
+  messageId?: string | null;
+}
+
 export interface RequestMessage {
   id: string;
   sender: "customer" | "support" | "ai";
   text: string;
   timestamp: string;
+  attachments?: RequestAttachment[];
 }
 
 export interface ServiceRequest {
@@ -25,6 +36,7 @@ export interface ServiceRequest {
   code: string;
   title: string;
   category: string;
+  categoryId?: string | null;
   description: string;
   status: RequestStatus;
   priority: RequestPriority;
@@ -34,6 +46,20 @@ export interface ServiceRequest {
   messages: RequestMessage[];
   timeline: TimelineStep[];
   csat?: { rating: number; comment?: string } | null;
+  attachments?: RequestAttachment[];
+  /** Whether messages/timeline/attachments/csat have been fetched from Supabase yet. */
+  detailsLoaded?: boolean;
+  /** Populated for agent/staff views only — the requesting customer and the assignee. */
+  customerId?: string;
+  customerName?: string | null;
+  assignedAdminId?: string | null;
+  assignedAdminName?: string | null;
+}
+
+export interface RequestCategoryOption {
+  id: string;
+  name: string;
+  description?: string | null;
 }
 
 export type ChatRole = "user" | "assistant";
@@ -53,6 +79,15 @@ export interface ChatMessage {
   feedback?: "up" | "down" | null;
   pending?: boolean;
   steps?: string[];
+  /** True once this message is confirmed persisted as a real ai_messages row. */
+  persisted?: boolean;
+}
+
+export interface AiConversationSummary {
+  id: string;
+  startedAt: string;
+  preview: string;
+  messageCount: number;
 }
 
 export type NotificationType =
@@ -91,10 +126,16 @@ export interface MemoryFact {
 }
 
 export interface UserProfile {
+  id: string;
+  role: "customer" | "agent";
   name: string;
   email: string;
   phone: string;
   memberSince: string;
   avatarInitials: string;
   plan: string;
+  pushNotifications: boolean;
+  emailNotifications: boolean;
+  aiPersonalization: boolean;
+  memoryEnabled: boolean;
 }
