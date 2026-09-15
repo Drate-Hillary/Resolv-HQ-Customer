@@ -1,5 +1,4 @@
-import { HELP_ARTICLES } from "./mock-data";
-import { ServiceRequest } from "./types";
+import { HelpArticle, ServiceRequest } from "./types";
 
 export interface AiAnswer {
   text: string;
@@ -35,6 +34,7 @@ function scoreArticle(query: string, haystack: string): number {
  */
 export function answerQuestion(
   query: string,
+  helpArticles: HelpArticle[],
   activeRequests: ServiceRequest[],
 ): AiAnswer {
   const lower = query.toLowerCase();
@@ -59,7 +59,7 @@ export function answerQuestion(
     }
   }
 
-  const ranked = HELP_ARTICLES.map((article) => ({
+  const ranked = helpArticles.map((article) => ({
     article,
     score: scoreArticle(lower, `${article.title} ${article.summary} ${article.body.join(" ")}`),
   }))

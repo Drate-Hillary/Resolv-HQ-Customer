@@ -1,54 +1,25 @@
-import React, { useState } from "react";
+import React from "react";
 import { ScrollView, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useAppState } from "@/lib/app-state";
 import ScreenHeader from "@/components/ui/ScreenHeader";
 import Card from "@/components/ui/Card";
 
-interface Pref {
-  id: string;
-  label: string;
-  detail: string;
-  enabled: boolean;
-}
-
-const INITIAL_PREFS: Pref[] = [
-  {
-    id: "p1",
-    label: "Request updates",
-    detail: "Status changes on any of your requests.",
-    enabled: true,
-  },
-  {
-    id: "p2",
-    label: "AI assistance",
-    detail: "When the assistant prepares something that may help.",
-    enabled: true,
-  },
-  {
-    id: "p3",
-    label: "Support messages",
-    detail: "New replies from our human support team.",
-    enabled: true,
-  },
-  {
-    id: "p4",
-    label: "Completed requests",
-    detail: "A final confirmation once a request is resolved.",
-    enabled: true,
-  },
-  {
-    id: "p5",
-    label: "Product updates",
-    detail: "Occasional news about new features.",
-    enabled: false,
-  },
-];
-
 export default function NotificationSettings() {
-  const [prefs, setPrefs] = useState(INITIAL_PREFS);
+  const { user, updatePreferences } = useAppState();
 
-  const toggle = (id: string) =>
-    setPrefs((prev) => prev.map((p) => (p.id === id ? { ...p, enabled: !p.enabled } : p)));
+  const prefs: { id: "pushNotifications" | "emailNotifications"; label: string; detail: string }[] = [
+    {
+      id: "pushNotifications",
+      label: "Push notifications",
+      detail: "Request updates, AI assistance, support replies, and completions on this device.",
+    },
+    {
+      id: "emailNotifications",
+      label: "Email notifications",
+      detail: "A copy of the same updates sent to your email address.",
+    },
+  ];
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
@@ -72,8 +43,10 @@ export default function NotificationSettings() {
                   </Text>
                 </View>
                 <Switch
-                  value={pref.enabled}
-                  onValueChange={() => toggle(pref.id)}
+                  value={user[pref.id]}
+                  onValueChange={(v) => {
+                    void updatePreferences({ [pref.id]: v });
+                  }}
                   trackColor={{ false: "#E5E5E5", true: "#000000" }}
                   thumbColor="#ffffff"
                 />

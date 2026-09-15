@@ -1,14 +1,34 @@
 import React, { useMemo, useState } from "react";
-import { KeyboardAvoidingView, Platform, Text, TextInput, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
-import { Cancel01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+  Attachment01Icon,
+  Cancel01Icon,
+  Edit02Icon,
+  File01Icon,
+  Image01Icon,
+  SparklesIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useAppState } from "@/lib/app-state";
 import { classifyRequest } from "@/lib/ai-responses";
+import { resolveCategoryId } from "@/lib/mappers";
+import { pickDocumentAttachment, pickImageAttachment, PickedAsset } from "@/lib/attachments";
 import IconButton from "@/components/ui/IconButton";
 import Button from "@/components/ui/Button";
+import AnimatedPressable from "@/components/ui/AnimatedPressable";
 
 const PRIORITY_LABEL: Record<string, string> = {
   low: "Low",
@@ -18,22 +38,63 @@ const PRIORITY_LABEL: Record<string, string> = {
 
 export default function CreateRequest() {
   const router = useRouter();
-  const { createRequest } = useAppState();
+  const { createRequest, categories } = useAppState();
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [attachments, setAttachments] = useState<PickedAsset[]>([]);
 
   const classification = useMemo(
     () => (description.trim().length > 8 ? classifyRequest(description) : null),
     [description],
   );
 
-  const handleSubmit = () => {
+  const suggestedCategoryId = useMemo(
+    () => (classification ? resolveCategoryId(categories, classification.category) : null),
+    [classification, categories],
+  );
+
+  const effectiveCategoryId = selectedCategoryId ?? suggestedCategoryId;
+  const effectiveCategoryName =
+    categories.find((c) => c.id === effectiveCategoryId)?.name ?? classification?.category ?? null;
+
+  const handleAddAttachment = () => {
+    Alert.alert("Add attachment", "Choose a photo or a document", [
+      {
+        text: "Photo",
+        onPress: async () => {
+          const asset = await pickImageAttachment();
+          if (asset) setAttachments((prev) => [...prev, asset]);
+        },
+      },
+      {
+        text: "Document",
+        onPress: async () => {
+          const asset = await pickDocumentAttachment();
+          if (asset) setAttachments((prev) => [...prev, asset]);
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const removeAttachment = (uri: string) => {
+    setAttachments((prev) => prev.filter((a) => a.uri !== uri));
+  };
+
+  const handleSubmit = async () => {
     if (!description.trim() || submitting) return;
+    setError(null);
     setSubmitting(true);
-    const created = createRequest(description.trim());
-    setTimeout(() => {
-      router.replace({ pathname: "/request/[id]", params: { id: created.id } });
-    }, 500);
+    const created = await createRequest(description.trim(), effectiveCategoryId, attachments);
+    setSubmitting(false);
+    if (!created) {
+      setError("Something went wrong submitting your request. Please try again.");
+      return;
+    }
+    router.replace({ pathname: "/request/[id]", params: { id: created.id } });
   };
 
   return (
@@ -77,11 +138,16 @@ export default function CreateRequest() {
                   <Text className="mb-1.5 font-manrope-semibold text-[12px] text-neutral-400">
                     Category
                   </Text>
-                  <View className="rounded-2xl border border-neutral-200 bg-white px-4 py-3">
-                    <Text className="font-manrope-bold text-[13px] text-black">
-                      {classification.category}
+                  <AnimatedPressable
+                    scaleTo={0.98}
+                    onPress={() => setPickerOpen(true)}
+                    className="flex-row items-center justify-between rounded-2xl border border-neutral-200 bg-white px-4 py-3"
+                  >
+                    <Text className="flex-1 font-manrope-bold text-[13px] text-black" numberOfLines={1}>
+                      {effectiveCategoryName ?? classification.category}
                     </Text>
-                  </View>
+                    <HugeiconsIcon icon={Edit02Icon} size={13} color="#A3A3A3" />
+                  </AnimatedPressable>
                 </View>
                 <View className="flex-1">
                   <Text className="mb-1.5 font-manrope-semibold text-[12px] text-neutral-400">
@@ -101,6 +167,46 @@ export default function CreateRequest() {
               automatically once there&apos;s enough detail.
             </Text>
           )}
+
+          <View className="mt-5">
+            <AnimatedPressable
+              scaleTo={0.98}
+              onPress={handleAddAttachment}
+              className="flex-row items-center gap-2 self-start rounded-2xl border border-dashed border-neutral-300 px-4 py-2.5"
+            >
+              <HugeiconsIcon icon={Attachment01Icon} size={15} color="#404040" />
+              <Text className="font-manrope-semibold text-[12px] text-neutral-600">
+                Attach photo or file
+              </Text>
+            </AnimatedPressable>
+
+            {attachments.length > 0 && (
+              <View className="mt-3 flex-row flex-wrap gap-2">
+                {attachments.map((a) => (
+                  <View
+                    key={a.uri}
+                    className="flex-row items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 py-1.5 pl-3 pr-1.5"
+                  >
+                    <HugeiconsIcon
+                      icon={a.mimeType?.startsWith("image/") ? Image01Icon : File01Icon}
+                      size={13}
+                      color="#525252"
+                    />
+                    <Text className="max-w-[140px] font-manrope-semibold text-[11px] text-neutral-600" numberOfLines={1}>
+                      {a.name}
+                    </Text>
+                    <Pressable onPress={() => removeAttachment(a.uri)} className="p-1">
+                      <HugeiconsIcon icon={Cancel01Icon} size={12} color="#A3A3A3" />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {error && (
+            <Text className="mt-4 font-manrope-medium text-[12px] text-red-600">{error}</Text>
+          )}
         </View>
 
         <View className="px-6 pb-8 pt-3">
@@ -112,6 +218,39 @@ export default function CreateRequest() {
           />
         </View>
       </KeyboardAvoidingView>
+
+      <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
+        <Pressable
+          className="flex-1 items-center justify-end bg-black/40"
+          onPress={() => setPickerOpen(false)}
+        >
+          <Pressable
+            onPress={() => {}}
+            className="w-full rounded-t-3xl bg-white px-6 pb-10 pt-5"
+          >
+            <Text className="mb-3 font-manrope-bold text-[16px] text-black">
+              Choose a category
+            </Text>
+            {categories.map((c) => {
+              const active = c.id === effectiveCategoryId;
+              return (
+                <AnimatedPressable
+                  key={c.id}
+                  scaleTo={0.99}
+                  onPress={() => {
+                    setSelectedCategoryId(c.id);
+                    setPickerOpen(false);
+                  }}
+                  className="flex-row items-center justify-between border-b border-neutral-100 py-3.5"
+                >
+                  <Text className="font-manrope-semibold text-[14px] text-black">{c.name}</Text>
+                  {active && <HugeiconsIcon icon={Tick02Icon} size={16} color="#000000" />}
+                </AnimatedPressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

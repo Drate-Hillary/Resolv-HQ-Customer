@@ -11,7 +11,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import {
-  FingerPrintIcon,
   Mail01Icon,
   SparklesIcon,
   SquareLock02Icon,
@@ -30,21 +29,21 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const canSubmit = email.trim().length > 3 && password.trim().length > 0;
 
-  const completeSignIn = () => {
-    signIn();
-    router.replace("/home");
-  };
-
-  const handleSignIn = () => {
-    if (!canSubmit) return;
+  const handleSignIn = async () => {
+    if (!canSubmit || loading) return;
+    setError(null);
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      completeSignIn();
-    }, 600);
+    const { error: signInError } = await signIn(email.trim(), password);
+    setLoading(false);
+    if (signInError) {
+      setError(signInError);
+      return;
+    }
+    router.replace("/home");
   };
 
   return (
@@ -113,25 +112,16 @@ export default function SignIn() {
                 Forgot password?
               </Text>
             </AnimatedPressable>
+
+            {error && (
+              <Animated.View entering={FadeInDown.duration(250)} className="mt-4">
+                <Text className="font-manrope-medium text-[13px] text-red-600">{error}</Text>
+              </Animated.View>
+            )}
           </Animated.View>
 
           <Animated.View entering={FadeInDown.delay(180).duration(400)} className="mt-8">
             <Button label="Sign In" onPress={handleSignIn} loading={loading} disabled={!canSubmit} />
-
-            <View className="my-6 flex-row items-center gap-3">
-              <View className="h-px flex-1 bg-neutral-200" />
-              <Text className="font-manrope-medium text-[12px] text-neutral-400">
-                or continue with
-              </Text>
-              <View className="h-px flex-1 bg-neutral-200" />
-            </View>
-
-            <Button
-              label="Sign in with Face ID"
-              variant="secondary"
-              icon={FingerPrintIcon}
-              onPress={completeSignIn}
-            />
           </Animated.View>
 
           <View className="flex-1" />

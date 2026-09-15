@@ -5,7 +5,6 @@ import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { ArrowRight02Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import { HELP_CATEGORIES } from "@/lib/mock-data";
 import { useAppState } from "@/lib/app-state";
 import { HelpArticle } from "@/lib/types";
 import ScreenHeader from "@/components/ui/ScreenHeader";
@@ -18,6 +17,11 @@ export default function HelpCentre() {
   const { helpArticles } = useAppState();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
+
+  const helpCategories = useMemo(
+    () => Array.from(new Set(helpArticles.map((a) => a.category))),
+    [helpArticles],
+  );
 
   const filtered = useMemo(() => {
     return helpArticles.filter((a) => {
@@ -47,7 +51,7 @@ export default function HelpCentre() {
       </View>
 
       <FlatList
-        data={["All", ...HELP_CATEGORIES]}
+        data={["All", ...helpCategories]}
         keyExtractor={(c) => c}
         horizontal
         showsHorizontalScrollIndicator={false}

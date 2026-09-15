@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import {
   Mail01Icon,
+  MailSend01Icon,
   SparklesIcon,
   SquareLock02Icon,
   Tick02Icon,
@@ -19,7 +20,7 @@ import {
   ViewIcon,
   ViewOffIcon,
 } from "@hugeicons/core-free-icons";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useAppState } from "@/lib/app-state";
 import Button from "@/components/ui/Button";
 import AnimatedPressable from "@/components/ui/AnimatedPressable";
@@ -33,19 +34,56 @@ export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmationSent, setConfirmationSent] = useState(false);
 
   const canSubmit =
     name.trim().length > 1 && email.trim().length > 3 && password.trim().length >= 6 && agreed;
 
-  const handleSignUp = () => {
-    if (!canSubmit) return;
+  const handleSignUp = async () => {
+    if (!canSubmit || loading) return;
+    setError(null);
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      signUp();
-      router.replace("/home");
-    }, 700);
+    const { error: signUpError, needsEmailConfirmation } = await signUp(
+      name.trim(),
+      email.trim(),
+      password,
+    );
+    setLoading(false);
+    if (signUpError) {
+      setError(signUpError);
+      return;
+    }
+    if (needsEmailConfirmation) {
+      setConfirmationSent(true);
+      return;
+    }
+    router.replace("/home");
   };
+
+  if (confirmationSent) {
+    return (
+      <SafeAreaView className="flex-1 bg-white">
+        <View className="flex-1 items-center justify-center px-8">
+          <Animated.View entering={FadeIn.duration(400)} className="items-center">
+            <View className="mb-5 h-16 w-16 items-center justify-center rounded-full bg-neutral-100">
+              <HugeiconsIcon icon={MailSend01Icon} size={28} color="#171717" />
+            </View>
+            <Text className="text-center font-manrope-bold text-[19px] text-black">
+              Confirm your email
+            </Text>
+            <Text className="mt-2 text-center font-manrope-medium text-[13px] leading-5 text-neutral-500">
+              We&rsquo;ve sent a confirmation link to {email}. Verify your email, then
+              sign in to get started.
+            </Text>
+            <View className="mt-8 w-full">
+              <Button label="Back to Sign In" variant="secondary" onPress={() => router.replace("/sign-in")} />
+            </View>
+          </Animated.View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-white">
@@ -135,6 +173,12 @@ export default function SignUp() {
                 I agree to the Terms of Service and Privacy Policy
               </Text>
             </AnimatedPressable>
+
+            {error && (
+              <Animated.View entering={FadeInDown.duration(250)} className="mt-4">
+                <Text className="font-manrope-medium text-[13px] text-red-600">{error}</Text>
+              </Animated.View>
+            )}
           </Animated.View>
 
           <Animated.View entering={FadeInDown.delay(180).duration(400)} className="mt-8">
