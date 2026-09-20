@@ -7,28 +7,9 @@ import React, {
   useState,
 } from "react";
 import * as Linking from "expo-linking";
-import { answerQuestion, classifyRequest } from "./ai-responses";
-import { ATTACHMENTS_BUCKET, PickedAsset } from "./attachments";
-import { AiMessageRow, Database } from "./database.types";
-import {
-  buildTimeline,
-  feedbackFromDb,
-  feedbackToDb,
-  formatMemberSince,
-  initialsFromName,
-  mapAiMessageRow,
-  mapAttachmentRow,
-  mapCategoryRow,
-  mapConversationRow,
-  mapHelpArticleRow,
-  mapMemoryFactRow,
-  mapMessageRow,
-  mapNotificationRow,
-  mapRequestRow,
-  priorityToDb,
-  resolveCategoryId,
-} from "./mappers";
-import { supabase } from "./supabase";
+import { apiBaseUrl, apiClient, apiErrorMessage, getAccessToken } from "../backend/api-client";
+import { PickedAsset } from "./attachments";
+import { supabase } from "../backend/supabase/client";
 import {
   AiConversationSummary,
   AppNotification,
@@ -44,10 +25,12 @@ import {
 } from "./types";
 
 /**
- * Single data layer for the customer app, backed by Supabase (auth + Postgres
- * + Storage). Screens consume this context instead of talking to `supabase`
- * directly, mirroring the previous in-memory-mock architecture so the swap
- * didn't require touching every screen's shape expectations.
+ * Single data layer for the customer app, backed by resolv-hq-backend (which
+ * owns every Postgres/Storage read and write) plus Supabase Auth directly
+ * for sign in/up/out and session handling. Screens consume this context
+ * instead of talking to the backend or Supabase directly, so the swap from
+ * direct-Supabase to backend-over-HTTP didn't require touching every
+ * screen's shape expectations.
  */
 interface AppStateShape {
   hasOnboarded: boolean;
@@ -99,7 +82,7 @@ interface AppStateShape {
     asset: PickedAsset,
   ) => Promise<RequestAttachment | null>;
 
-  // Agent-only actions (RLS-gated to role in ('admin', 'agent') server-side).
+  // Agent-only actions (role-gated server-side by resolv-hq-backend).
   sendSupportMessage: (requestId: string, text: string) => Promise<RequestMessage | null>;
   updateRequestStatus: (
     requestId: string,
@@ -146,6 +129,54 @@ const DEFAULT_USER: UserProfile = {
   memoryEnabled: true,
 };
 
+/** GET /me's shape — role is widened vs UserProfile since the backend hands back "admin" too (handled by signing that case out below). */
+interface MeResponse extends Omit<UserProfile, "role"> {
+  role: "customer" | "agent" | "admin";
+}
+
+/** resolv-hq-backend's neutral chat shapes (src/types/api.ts ChatConversationOut/ChatMessageOut). */
+interface ChatConversationOut {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  messageCount: number;
+}
+
+interface ChatMessageOut {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  sources: { id: string; label: string; excerpt: string | null }[];
+}
+
+const DEFAULT_CHAT_STEPS = [
+  "Understanding your request",
+  "Checking available information",
+  "Finding relevant guidance",
+  "Preparing your response",
+];
+
+function mapChatMessageOut(row: ChatMessageOut): ChatMessage {
+  return {
+    id: row.id,
+    role: row.role,
+    text: row.content,
+    sources: row.sources.map((s) => ({ id: s.id, title: s.label })),
+    createdAt: row.createdAt,
+    persisted: true,
+  };
+}
+
+/** Small pure formatter — no data access, safe to keep local now that backend/mappers.ts is gone. */
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 function makeWelcomeMessage(): ChatMessage {
   return {
     id: "welcome",
@@ -191,162 +222,93 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setConversations([]);
   }, []);
 
-  const loadConversationsList = useCallback(async (uid: string) => {
-    const { data: convRows, error } = await supabase
-      .from("ai_conversations")
-      .select("*")
-      .eq("customer_id", uid)
-      .order("started_at", { ascending: false });
-    if (error || !convRows) {
-      if (error) console.warn("Failed to load conversations", error.message);
+  // GET /chat/conversations doesn't include a preview string, so we fetch
+  // each conversation's messages to derive one from the first user message —
+  // an N+1, but the conversation list is small and this is the only way to
+  // get real preview text out of the backend's actual contract.
+  const loadConversationsList = useCallback(async () => {
+    try {
+      const { data: convRows } = await apiClient.get<ChatConversationOut[]>("/chat/conversations");
+      if (convRows.length === 0) {
+        setConversations([]);
+        return;
+      }
+      const summaries = await Promise.all(
+        convRows.map(async (c) => {
+          let preview = "New conversation";
+          try {
+            const { data: msgs } = await apiClient.get<ChatMessageOut[]>(
+              `/chat/conversations/${c.id}/messages`,
+            );
+            const firstUser = msgs.find((m) => m.role === "user");
+            if (firstUser) preview = firstUser.content;
+          } catch {
+            // keep default preview
+          }
+          return { id: c.id, startedAt: c.startedAt, preview, messageCount: c.messageCount };
+        }),
+      );
+      setConversations(summaries);
+    } catch (e) {
+      console.warn("Failed to load conversations", apiErrorMessage(e));
       setConversations([]);
-      return;
     }
-    if (convRows.length === 0) {
-      setConversations([]);
-      return;
-    }
-    const ids = convRows.map((c) => c.id);
-    const { data: msgRows } = await supabase
-      .from("ai_messages")
-      .select("*")
-      .in("conversation_id", ids)
-      .order("created_at", { ascending: true });
-    const byConversation = new Map<string, AiMessageRow[]>();
-    for (const m of msgRows ?? []) {
-      const list = byConversation.get(m.conversation_id) ?? [];
-      list.push(m);
-      byConversation.set(m.conversation_id, list);
-    }
-    const summaries = convRows.map((c) => {
-      const msgs = byConversation.get(c.id) ?? [];
-      const firstUser = msgs.find((m) => m.role === "user");
-      const preview = firstUser?.content ?? "New conversation";
-      return mapConversationRow(c, preview, msgs.length);
-    });
-    setConversations(summaries);
   }, []);
 
   const loadAllData = useCallback(
-    async (uid: string, authEmail: string | null) => {
+    async (uid: string) => {
       setRequestsLoading(true);
 
       // Role decides the shape of everything else we fetch, so resolve it first.
-      const profileRes = await supabase.from("profiles").select("*").eq("id", uid).single();
-
-      if (profileRes.data?.role === "admin") {
-        // Admins manage Resolv-HQ from the Next.js console, not this app —
-        // don't load a customer-shaped view for them.
-        await supabase.auth.signOut();
-        setRequestsLoading(false);
-        return;
-      }
-
-      const role: UserProfile["role"] = profileRes.data?.role === "agent" ? "agent" : "customer";
-
-      // Agents work every open request across all customers, not just their
-      // own — and skip the purely customer-facing tables entirely.
-      const [customerProfileRes, requestsRes, notificationsRes, categoriesRes, helpRes, memoryRes] =
-        await Promise.all([
-          role === "customer"
-            ? supabase.from("customer_profiles").select("*").eq("id", uid).single()
-            : null,
-          role === "agent"
-            ? supabase
-                .from("requests")
-                .select("*")
-                .neq("status", "completed")
-                .order("created_at", { ascending: true })
-            : supabase
-                .from("requests")
-                .select("*")
-                .eq("customer_id", uid)
-                .order("created_at", { ascending: false }),
-          role === "customer"
-            ? supabase
-                .from("notifications")
-                .select("*")
-                .eq("customer_id", uid)
-                .order("created_at", { ascending: false })
-            : null,
-          supabase.from("request_categories").select("*").order("name", { ascending: true }),
-          supabase.from("help_articles").select("*").order("category", { ascending: true }),
-          role === "customer"
-            ? supabase
-                .from("customer_memory_facts")
-                .select("*")
-                .eq("customer_id", uid)
-                .order("created_at", { ascending: true })
-            : null,
-        ]);
-
-      if (profileRes.data) {
-        const cp = customerProfileRes?.data;
-        setUser({
-          id: uid,
-          role,
-          name: profileRes.data.full_name ?? "",
-          email: authEmail ?? "",
-          phone: profileRes.data.phone ?? "",
-          memberSince: formatMemberSince(profileRes.data.created_at),
-          avatarInitials: initialsFromName(profileRes.data.full_name || authEmail || "?"),
-          plan: cp?.plan ?? "Free",
-          pushNotifications: cp?.push_notifications ?? true,
-          emailNotifications: cp?.email_notifications ?? true,
-          aiPersonalization: cp?.ai_personalization ?? true,
-          memoryEnabled: cp?.memory_enabled ?? true,
-        });
-      } else if (profileRes.error) {
-        console.warn("Failed to load profile", profileRes.error.message);
-      }
-
-      const categoryOptions = categoriesRes.data ? categoriesRes.data.map(mapCategoryRow) : [];
-      setCategories(categoryOptions);
-      const categoryMap = new Map(categoryOptions.map((c) => [c.id, c.name]));
-
-      if (requestsRes.data) {
-        if (role === "agent") {
-          // Resolve the requesting customer's + assignee's display names in
-          // one extra query rather than N+1-ing per row.
-          const peopleIds = new Set<string>();
-          for (const row of requestsRes.data) {
-            peopleIds.add(row.customer_id);
-            if (row.assigned_admin_id) peopleIds.add(row.assigned_admin_id);
-          }
-          const { data: peopleRows } =
-            peopleIds.size > 0
-              ? await supabase.from("profiles").select("id, full_name").in("id", Array.from(peopleIds))
-              : { data: [] as { id: string; full_name: string | null }[] };
-          const nameById = new Map((peopleRows ?? []).map((p) => [p.id, p.full_name]));
-
-          setRequests(
-            requestsRes.data.map((row) =>
-              mapRequestRow(row, row.category_id ? categoryMap.get(row.category_id) ?? null : null, {
-                customerName: nameById.get(row.customer_id) ?? null,
-                assignedAdminName: row.assigned_admin_id
-                  ? nameById.get(row.assigned_admin_id) ?? null
-                  : null,
-              }),
-            ),
-          );
-        } else {
-          setRequests(
-            requestsRes.data.map((row) =>
-              mapRequestRow(row, row.category_id ? categoryMap.get(row.category_id) ?? null : null),
-            ),
-          );
+      let role: UserProfile["role"] = "customer";
+      try {
+        const { data: profile } = await apiClient.get<MeResponse>("/me");
+        if (profile.role === "admin") {
+          // Admins manage Resolv-HQ from the Next.js console, not this app —
+          // don't load a customer-shaped view for them.
+          await supabase.auth.signOut();
+          setRequestsLoading(false);
+          return;
         }
-      } else if (requestsRes.error) {
-        console.warn("Failed to load requests", requestsRes.error.message);
+        role = profile.role === "agent" ? "agent" : "customer";
+        setUser({ ...profile, role });
+      } catch (e) {
+        console.warn("Failed to load profile", apiErrorMessage(e));
       }
 
-      if (notificationsRes?.data) setNotifications(notificationsRes.data.map(mapNotificationRow));
-      if (helpRes.data) setHelpArticles(helpRes.data.map(mapHelpArticleRow));
-      if (memoryRes?.data) setMemoryFacts(memoryRes.data.map(mapMemoryFactRow));
+      try {
+        // /requests is role-aware server-side: agents get the open queue
+        // across every customer, customers get just their own.
+        const [requestsRes, categoriesRes, helpRes] = await Promise.all([
+          apiClient.get<ServiceRequest[]>("/requests"),
+          apiClient.get<RequestCategoryOption[]>("/categories"),
+          apiClient.get<HelpArticle[]>("/help-articles"),
+        ]);
+        setRequests(requestsRes.data);
+        setCategories(categoriesRes.data);
+        setHelpArticles(helpRes.data);
+      } catch (e) {
+        console.warn("Failed to load requests", apiErrorMessage(e));
+      }
+
+      // Notifications, memory facts, and AI conversations are customer-facing
+      // concepts only — agents skip them entirely (the backend also 403s
+      // these routes for a staff caller).
+      if (role === "customer") {
+        try {
+          const [notificationsRes, memoryRes] = await Promise.all([
+            apiClient.get<AppNotification[]>("/notifications"),
+            apiClient.get<MemoryFact[]>("/memory-facts"),
+          ]);
+          setNotifications(notificationsRes.data);
+          setMemoryFacts(memoryRes.data);
+        } catch (e) {
+          console.warn("Failed to load notifications", apiErrorMessage(e));
+        }
+        loadConversationsList();
+      }
 
       setRequestsLoading(false);
-      // AI conversations are a customer-facing concept only.
-      if (role === "customer") loadConversationsList(uid);
     },
     [loadConversationsList],
   );
@@ -359,7 +321,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         setIsAuthenticated(true);
         setUserId(session.user.id);
-        loadAllData(session.user.id, session.user.email ?? null).finally(() => {
+        loadAllData(session.user.id).finally(() => {
           if (mounted) setAuthLoading(false);
         });
       } else {
@@ -372,7 +334,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (event === "SIGNED_IN" && session?.user) {
         setIsAuthenticated(true);
         setUserId(session.user.id);
-        loadAllData(session.user.id, session.user.email ?? null);
+        loadAllData(session.user.id);
       } else if (event === "SIGNED_OUT") {
         setIsAuthenticated(false);
         setUserId(null);
@@ -388,21 +350,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---------------------------------------------------------------------
-  // Auth
+  // Auth — Supabase Auth is called directly; this is an intentional scope
+  // boundary, not something the backend proxies.
   // ---------------------------------------------------------------------
   const signIn = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { error: error.message };
 
     if (data.user) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", data.user.id)
-        .single();
-      if (profile?.role === "admin") {
-        await supabase.auth.signOut();
-        return { error: "Admin accounts use the Resolv-HQ web console, not this app." };
+      try {
+        const { data: profile } = await apiClient.get<MeResponse>("/me");
+        if (profile.role === "admin") {
+          await supabase.auth.signOut();
+          return { error: "Admin accounts use the Resolv-HQ web console, not this app." };
+        }
+      } catch (e) {
+        console.warn("Failed to verify role after sign-in", apiErrorMessage(e));
       }
     }
 
@@ -433,17 +396,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const updateProfile = useCallback(
     async (patch: { name?: string; email?: string; phone?: string }) => {
       if (!userId) return { error: "You need to be signed in." };
-      const profilePatch: Database["public"]["Tables"]["profiles"]["Update"] = {};
-      if (patch.name !== undefined) profilePatch.full_name = patch.name;
-      if (patch.phone !== undefined) profilePatch.phone = patch.phone;
-
-      if (Object.keys(profilePatch).length > 0) {
-        const { error } = await supabase.from("profiles").update(profilePatch).eq("id", userId);
-        if (error) return { error: error.message };
-      }
-      if (patch.email !== undefined && patch.email !== user.email) {
-        const { error } = await supabase.auth.updateUser({ email: patch.email });
-        if (error) return { error: error.message };
+      try {
+        await apiClient.patch("/me", patch);
+      } catch (e) {
+        return { error: apiErrorMessage(e) };
       }
       setUser((prev) => ({
         ...prev,
@@ -455,7 +411,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }));
       return { error: null };
     },
-    [userId, user.email],
+    [userId],
   );
 
   const updatePreferences = useCallback(
@@ -468,20 +424,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       >,
     ) => {
       if (!userId) return { error: "You need to be signed in." };
-      const dbPatch: Database["public"]["Tables"]["customer_profiles"]["Update"] = {};
-      if (patch.pushNotifications !== undefined) dbPatch.push_notifications = patch.pushNotifications;
-      if (patch.emailNotifications !== undefined)
-        dbPatch.email_notifications = patch.emailNotifications;
-      if (patch.aiPersonalization !== undefined) dbPatch.ai_personalization = patch.aiPersonalization;
-      if (patch.memoryEnabled !== undefined) dbPatch.memory_enabled = patch.memoryEnabled;
-
       setUser((prev) => ({ ...prev, ...patch }));
-      const { error } = await supabase.from("customer_profiles").update(dbPatch).eq("id", userId);
-      if (error) {
-        console.warn("Failed to update preferences", error.message);
-        return { error: error.message };
+      try {
+        await apiClient.patch("/me/preferences", patch);
+        return { error: null };
+      } catch (e) {
+        const message = apiErrorMessage(e);
+        console.warn("Failed to update preferences", message);
+        return { error: message };
       }
-      return { error: null };
     },
     [userId],
   );
@@ -494,6 +445,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [requests],
   );
 
+  // Multipart upload via RN's fetch (not the axios instance): RN's FormData
+  // needs the `{uri, name, type}` file-field convention, and axios's own
+  // FormData detection is unreliable on React Native, so this one call goes
+  // straight through fetch with the same bearer token api-client attaches.
   const uploadAttachment = useCallback(
     async (
       requestId: string,
@@ -502,37 +457,26 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     ): Promise<RequestAttachment | null> => {
       if (!userId) return null;
       try {
-        const safeName = asset.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const path = `${userId}/${requestId}/${Date.now()}-${safeName}`;
-        const response = await fetch(asset.uri);
-        const arrayBuffer = await response.arrayBuffer();
-        const { error: uploadError } = await supabase.storage
-          .from(ATTACHMENTS_BUCKET)
-          .upload(path, arrayBuffer, {
-            contentType: asset.mimeType ?? "application/octet-stream",
-            upsert: false,
-          });
-        if (uploadError) throw uploadError;
+        const form = new FormData();
+        form.append("file", {
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType ?? "application/octet-stream",
+        } as unknown as Blob);
+        if (messageId) form.append("messageId", messageId);
 
-        const { data: publicUrlData } = supabase.storage
-          .from(ATTACHMENTS_BUCKET)
-          .getPublicUrl(path);
-
-        const { data: row, error: insertError } = await supabase
-          .from("request_attachments")
-          .insert({
-            request_id: requestId,
-            message_id: messageId,
-            uploaded_by: userId,
-            file_url: publicUrlData.publicUrl,
-            file_name: asset.name,
-            file_type: asset.mimeType,
-            file_size_bytes: asset.size,
-          })
-          .select()
-          .single();
-        if (insertError || !row) throw insertError;
-        return mapAttachmentRow(row);
+        const token = await getAccessToken();
+        const response = await fetch(`${apiBaseUrl}/requests/${requestId}/attachments`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: form,
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error ?? `Upload failed (${response.status})`);
+        }
+        const row: RequestAttachment = await response.json();
+        return row;
       } catch (e) {
         console.warn("Attachment upload failed", e);
         return null;
@@ -571,207 +515,149 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       attachments: PickedAsset[] = [],
     ): Promise<ServiceRequest | null> => {
       if (!userId) return null;
-      const { category, priority } = classifyRequest(description);
-      const resolvedCategoryId = categoryId ?? resolveCategoryId(categories, category);
-      const aiSummary = `Thanks — I've classified this as "${category}" with ${priority} priority and sent it to our team.`;
-
-      const { data: requestRow, error } = await supabase
-        .from("requests")
-        .insert({
-          customer_id: userId,
-          category_id: resolvedCategoryId,
-          title: category,
+      try {
+        // Category/priority classification now happens server-side.
+        const { data } = await apiClient.post<ServiceRequest>("/requests", {
           description,
-          priority: priorityToDb(priority),
-          source: "mobile",
-          ai_summary: aiSummary,
-        })
-        .select()
-        .single();
-      if (error || !requestRow) {
-        console.warn("Failed to create request", error?.message);
+          categoryId,
+        });
+
+        const firstMessage = data.messages[0];
+        const uploaded: RequestAttachment[] = [];
+        if (firstMessage) {
+          for (const asset of attachments) {
+            const attachment = await uploadAttachment(data.id, firstMessage.id, asset);
+            if (attachment) uploaded.push(attachment);
+          }
+        }
+
+        const newRequest: ServiceRequest = {
+          ...data,
+          messages: firstMessage
+            ? [{ ...firstMessage, attachments: uploaded }]
+            : data.messages,
+          attachments: uploaded,
+          detailsLoaded: true,
+        };
+        setRequests((prev) => [newRequest, ...prev]);
+        return newRequest;
+      } catch (e) {
+        console.warn("Failed to create request", apiErrorMessage(e));
         return null;
       }
-
-      const { data: messageRow } = await supabase
-        .from("request_messages")
-        .insert({ request_id: requestRow.id, sender_type: "customer", text: description })
-        .select()
-        .single();
-
-      const uploaded: RequestAttachment[] = [];
-      if (messageRow) {
-        for (const asset of attachments) {
-          const attachment = await uploadAttachment(requestRow.id, messageRow.id, asset);
-          if (attachment) uploaded.push(attachment);
-        }
-      }
-
-      const categoryName =
-        categories.find((c) => c.id === resolvedCategoryId)?.name ?? category;
-      const newRequest: ServiceRequest = {
-        ...mapRequestRow(requestRow, categoryName),
-        messages: messageRow ? [mapMessageRow(messageRow, uploaded)] : [],
-        attachments: uploaded,
-        detailsLoaded: true,
-      };
-      setRequests((prev) => [newRequest, ...prev]);
-      return newRequest;
     },
-    [userId, categories, uploadAttachment],
+    [userId, uploadAttachment],
   );
 
   const sendRequestMessage = useCallback(async (requestId: string, text: string) => {
-    const { data: row, error } = await supabase
-      .from("request_messages")
-      .insert({ request_id: requestId, sender_type: "customer", text })
-      .select()
-      .single();
-    if (error || !row) {
-      console.warn("Failed to send message", error?.message);
+    try {
+      const { data } = await apiClient.post<RequestMessage>(`/requests/${requestId}/messages`, {
+        text,
+      });
+      setRequests((prev) =>
+        prev.map((r) => (r.id === requestId ? { ...r, messages: [...r.messages, data] } : r)),
+      );
+      return data;
+    } catch (e) {
+      console.warn("Failed to send message", apiErrorMessage(e));
       return null;
     }
-    const message = mapMessageRow(row);
-    setRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, messages: [...r.messages, message] } : r)),
-    );
-    return message;
   }, []);
 
   const submitRequestFeedback = useCallback(
     async (requestId: string, rating: number, comment?: string) => {
-      const { data: row, error } = await supabase
-        .from("request_feedback")
-        .insert({ request_id: requestId, rating, comment: comment ?? null })
-        .select()
-        .single();
-      if (error || !row) {
-        console.warn("Failed to submit feedback", error?.message);
-        return { error: error?.message ?? "Could not submit feedback." };
+      try {
+        const { data } = await apiClient.post<{ rating: number; comment?: string }>(
+          `/requests/${requestId}/feedback`,
+          { rating, comment },
+        );
+        setRequests((prev) =>
+          prev.map((r) =>
+            r.id === requestId
+              ? { ...r, csat: { rating: data.rating, comment: data.comment } }
+              : r,
+          ),
+        );
+        return { error: null };
+      } catch (e) {
+        const message = apiErrorMessage(e);
+        console.warn("Failed to submit feedback", message);
+        return { error: message };
       }
-      setRequests((prev) =>
-        prev.map((r) =>
-          r.id === requestId
-            ? { ...r, csat: { rating: row.rating, comment: row.comment ?? undefined } }
-            : r,
-        ),
-      );
-      return { error: null };
     },
     [],
   );
 
   const loadRequestDetail = useCallback(async (id: string) => {
-    const [messagesRes, attachmentsRes, historyRes, feedbackRes] = await Promise.all([
-      supabase
-        .from("request_messages")
-        .select("*")
-        .eq("request_id", id)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("request_attachments")
-        .select("*")
-        .eq("request_id", id)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("request_status_history")
-        .select("*")
-        .eq("request_id", id)
-        .order("created_at", { ascending: true }),
-      supabase.from("request_feedback").select("*").eq("request_id", id).maybeSingle(),
-    ]);
-
-    setRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const allAttachments = (attachmentsRes.data ?? []).map(mapAttachmentRow);
-        const attachmentsByMessage = new Map<string, RequestAttachment[]>();
-        for (const a of allAttachments) {
-          if (!a.messageId) continue;
-          const list = attachmentsByMessage.get(a.messageId) ?? [];
-          list.push(a);
-          attachmentsByMessage.set(a.messageId, list);
-        }
-        const messages = (messagesRes.data ?? []).map((m) =>
-          mapMessageRow(m, attachmentsByMessage.get(m.id) ?? []),
-        );
-        const feedback = feedbackRes.data;
-        return {
-          ...r,
-          messages,
-          attachments: allAttachments,
-          timeline: buildTimeline(historyRes.data ?? [], r.createdAt),
-          csat: feedback ? { rating: feedback.rating, comment: feedback.comment ?? undefined } : null,
-          detailsLoaded: true,
-        };
-      }),
-    );
+    try {
+      const { data } = await apiClient.get<ServiceRequest>(`/requests/${id}`);
+      setRequests((prev) =>
+        prev.map((r) => (r.id === id ? { ...data, detailsLoaded: true } : r)),
+      );
+    } catch (e) {
+      console.warn("Failed to load request detail", apiErrorMessage(e));
+    }
   }, []);
 
   // ---------------------------------------------------------------------
-  // Agent-only actions
+  // Agent-only actions — same /requests endpoints as the customer flows;
+  // the backend's own role checks handle the distinction.
   // ---------------------------------------------------------------------
   const sendSupportMessage = useCallback(
     async (requestId: string, text: string) => {
       if (!userId) return null;
-      const { data: row, error } = await supabase
-        .from("request_messages")
-        .insert({ request_id: requestId, sender_type: "support", sender_id: userId, text })
-        .select()
-        .single();
-      if (error || !row) {
-        console.warn("Failed to send support message", error?.message);
+      try {
+        const { data } = await apiClient.post<RequestMessage>(
+          `/requests/${requestId}/messages`,
+          { text },
+        );
+        setRequests((prev) =>
+          prev.map((r) => (r.id === requestId ? { ...r, messages: [...r.messages, data] } : r)),
+        );
+        return data;
+      } catch (e) {
+        console.warn("Failed to send support message", apiErrorMessage(e));
         return null;
       }
-      const message = mapMessageRow(row);
-      setRequests((prev) =>
-        prev.map((r) => (r.id === requestId ? { ...r, messages: [...r.messages, message] } : r)),
-      );
-      return message;
     },
     [userId],
   );
 
-  const updateRequestStatus = useCallback(
-    async (requestId: string, status: RequestStatus) => {
-      const { error } = await supabase.from("requests").update({ status }).eq("id", requestId);
-      if (error) {
-        console.warn("Failed to update request status", error.message);
-        return { error: error.message };
-      }
+  const updateRequestStatus = useCallback(async (requestId: string, status: RequestStatus) => {
+    try {
+      // The backend returns the full refreshed detail (timeline + the
+      // notification-triggering side effects included), so no follow-up
+      // fetch is needed.
+      const { data } = await apiClient.patch<ServiceRequest>(`/requests/${requestId}/status`, {
+        status,
+      });
       setRequests((prev) =>
-        prev.map((r) =>
-          r.id === requestId ? { ...r, status, updatedAt: new Date().toISOString() } : r,
-        ),
+        prev.map((r) => (r.id === requestId ? { ...data, detailsLoaded: true } : r)),
       );
-      // request_status_history is written by a DB trigger — refresh the
-      // timeline (and notifications the trigger also creates for the
-      // customer) rather than reconstructing it locally.
-      await loadRequestDetail(requestId);
       return { error: null };
-    },
-    [loadRequestDetail],
-  );
+    } catch (e) {
+      const message = apiErrorMessage(e);
+      console.warn("Failed to update request status", message);
+      return { error: message };
+    }
+  }, []);
 
   const assignRequestToMe = useCallback(
     async (requestId: string) => {
       if (!userId) return { error: "You need to be signed in." };
-      const { error } = await supabase
-        .from("requests")
-        .update({ assigned_admin_id: userId })
-        .eq("id", requestId);
-      if (error) {
-        console.warn("Failed to assign request", error.message);
-        return { error: error.message };
+      try {
+        const { data } = await apiClient.patch<ServiceRequest>(`/requests/${requestId}/assign`, {});
+        setRequests((prev) =>
+          prev.map((r) => (r.id === requestId ? { ...data, detailsLoaded: true } : r)),
+        );
+        return { error: null };
+      } catch (e) {
+        const message = apiErrorMessage(e);
+        console.warn("Failed to assign request", message);
+        return { error: message };
       }
-      setRequests((prev) =>
-        prev.map((r) =>
-          r.id === requestId ? { ...r, assignedAdminId: userId, assignedAdminName: user.name } : r,
-        ),
-      );
-      return { error: null };
     },
-    [userId, user.name],
+    [userId],
   );
 
   // ---------------------------------------------------------------------
@@ -784,19 +670,21 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const markNotificationRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-    const { error } = await supabase.from("notifications").update({ read: true }).eq("id", id);
-    if (error) console.warn("Failed to mark notification read", error.message);
+    try {
+      await apiClient.patch(`/notifications/${id}/read`);
+    } catch (e) {
+      console.warn("Failed to mark notification read", apiErrorMessage(e));
+    }
   }, []);
 
   const markAllNotificationsRead = useCallback(async () => {
     if (!userId) return;
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    const { error } = await supabase
-      .from("notifications")
-      .update({ read: true })
-      .eq("customer_id", userId)
-      .eq("read", false);
-    if (error) console.warn("Failed to mark all notifications read", error.message);
+    try {
+      await apiClient.patch("/notifications/read-all");
+    } catch (e) {
+      console.warn("Failed to mark all notifications read", apiErrorMessage(e));
+    }
   }, [userId]);
 
   // ---------------------------------------------------------------------
@@ -804,21 +692,17 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   // ---------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!userId) return;
-    await loadConversationsList(userId);
+    await loadConversationsList();
   }, [userId, loadConversationsList]);
 
   const loadConversation = useCallback(async (id: string) => {
-    const { data, error } = await supabase
-      .from("ai_messages")
-      .select("*")
-      .eq("conversation_id", id)
-      .order("created_at", { ascending: true });
-    if (error) {
-      console.warn("Failed to load conversation", error.message);
-      return;
+    try {
+      const { data } = await apiClient.get<ChatMessageOut[]>(`/chat/conversations/${id}/messages`);
+      setChatMessages(data.length > 0 ? data.map(mapChatMessageOut) : [makeWelcomeMessage()]);
+      setActiveConversationId(id);
+    } catch (e) {
+      console.warn("Failed to load conversation", apiErrorMessage(e));
     }
-    setChatMessages(data && data.length > 0 ? data.map(mapAiMessageRow) : [makeWelcomeMessage()]);
-    setActiveConversationId(id);
   }, []);
 
   const resetChat = useCallback(() => {
@@ -837,98 +721,68 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString(),
       };
       const pendingId = `local-a-${Date.now()}`;
-      const answer = answerQuestion(text, helpArticles, requests);
       const pendingMessage: ChatMessage = {
         id: pendingId,
         role: "assistant",
         text: "",
         pending: true,
-        steps: answer.steps,
+        steps: DEFAULT_CHAT_STEPS,
         createdAt: new Date().toISOString(),
       };
       setChatMessages((prev) => [...prev, userMessage, pendingMessage]);
 
-      let conversationId = activeConversationId;
       try {
+        let conversationId = activeConversationId;
         if (!conversationId) {
-          const { data, error } = await supabase
-            .from("ai_conversations")
-            .insert({ customer_id: userId, channel: "chat" })
-            .select()
-            .single();
-          if (error || !data) throw error;
+          const { data } = await apiClient.post<ChatConversationOut>("/chat/conversations", {
+            channel: "chat",
+          });
           conversationId = data.id;
           setActiveConversationId(conversationId);
         }
-        const { data: userRow, error: userErr } = await supabase
-          .from("ai_messages")
-          .insert({ conversation_id: conversationId, role: "user", content: text })
-          .select()
-          .single();
-        if (!userErr && userRow) {
-          const mapped = mapAiMessageRow(userRow);
-          setChatMessages((prev) => prev.map((m) => (m.id === localUserId ? mapped : m)));
-        }
-      } catch (e) {
-        console.warn("Failed to persist chat message", e);
-      }
 
-      setTimeout(async () => {
+        // The backend generates and persists the assistant reply server-side
+        // (real answer-engine logic) and returns both messages in one shot —
+        // no more separate client-side "simulate the reply" step.
+        const { data } = await apiClient.post<{
+          userMessage: ChatMessageOut;
+          assistantMessage: ChatMessageOut;
+        }>(`/chat/conversations/${conversationId}/messages`, { content: text });
+
+        setChatMessages((prev) =>
+          prev.map((m) => {
+            if (m.id === localUserId) return mapChatMessageOut(data.userMessage);
+            if (m.id === pendingId) return mapChatMessageOut(data.assistantMessage);
+            return m;
+          }),
+        );
+        refreshConversations();
+      } catch (e) {
+        console.warn("Failed to send chat message", apiErrorMessage(e));
         setChatMessages((prev) =>
           prev.map((m) =>
             m.id === pendingId
               ? {
                   ...m,
                   pending: false,
-                  text: answer.text,
-                  sources: answer.sources,
-                  suggestions: answer.suggestions,
+                  text: "Sorry, I couldn't reach the assistant. Please try again.",
                 }
               : m,
           ),
         );
-
-        if (!conversationId) return;
-        try {
-          // NOTE: under the deployed RLS policies, ai_messages insert for
-          // role='assistant' requires is_staff() — a customer-authenticated
-          // client cannot write the assistant's reply. We still attempt it
-          // (in case a future service-role-backed function relaxes this)
-          // and gracefully keep the reply local-only if it's rejected.
-          const { data: assistantRow, error } = await supabase
-            .from("ai_messages")
-            .insert({
-              conversation_id: conversationId,
-              role: "assistant",
-              content: answer.text,
-              suggestions: answer.suggestions,
-              steps: answer.steps,
-            })
-            .select()
-            .single();
-          if (!error && assistantRow) {
-            const mapped = { ...mapAiMessageRow(assistantRow), sources: answer.sources };
-            setChatMessages((prev) => prev.map((m) => (m.id === pendingId ? mapped : m)));
-          } else if (error) {
-            console.warn("Assistant reply not persisted (RLS likely blocked it):", error.message);
-          }
-        } catch (e) {
-          console.warn("Failed to persist assistant reply", e);
-        }
-        refreshConversations();
-      }, 1450);
+      }
     },
-    [activeConversationId, requests, helpArticles, userId, refreshConversations],
+    [activeConversationId, userId, refreshConversations],
   );
 
   const rateChatMessage = useCallback(async (id: string, feedback: "up" | "down") => {
     setChatMessages((prev) => prev.map((m) => (m.id === id ? { ...m, feedback } : m)));
     if (id.startsWith("local-")) return; // never made it to a real row
-    const { error } = await supabase
-      .from("ai_messages")
-      .update({ feedback: feedbackToDb(feedback) })
-      .eq("id", id);
-    if (error) console.warn("Failed to persist feedback", error.message);
+    try {
+      await apiClient.patch(`/chat/messages/${id}/feedback`, { feedback });
+    } catch (e) {
+      console.warn("Failed to persist feedback", apiErrorMessage(e));
+    }
   }, []);
 
   // ---------------------------------------------------------------------
@@ -940,11 +794,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (!current) return;
       const next = !current.enabled;
       setMemoryFacts((prev) => prev.map((f) => (f.id === id ? { ...f, enabled: next } : f)));
-      const { error } = await supabase
-        .from("customer_memory_facts")
-        .update({ enabled: next })
-        .eq("id", id);
-      if (error) console.warn("Failed to toggle memory fact", error.message);
+      try {
+        await apiClient.patch(`/memory-facts/${id}`, { enabled: next });
+      } catch (e) {
+        console.warn("Failed to toggle memory fact", apiErrorMessage(e));
+      }
     },
     [memoryFacts],
   );

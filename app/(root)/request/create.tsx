@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -23,8 +23,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useAppState } from "@/lib/app-state";
-import { classifyRequest } from "@/lib/ai-responses";
-import { resolveCategoryId } from "@/lib/mappers";
+import { apiClient, apiErrorMessage } from "@/backend/api-client";
+import { RequestCategoryOption } from "@/lib/types";
 import { pickDocumentAttachment, pickImageAttachment, PickedAsset } from "@/lib/attachments";
 import IconButton from "@/components/ui/IconButton";
 import Button from "@/components/ui/Button";
@@ -36,6 +36,23 @@ const PRIORITY_LABEL: Record<string, string> = {
   high: "High",
 };
 
+interface Classification {
+  category: string;
+  priority: "low" | "normal" | "high";
+}
+
+/** Same matching rules as resolv-hq-backend's resolveCategoryId (src/lib/mappers.ts) — kept local since it's pure UI-preview logic, not data access. */
+function findCategoryIdByName(
+  categories: RequestCategoryOption[],
+  suggestedName: string,
+): string | null {
+  if (categories.length === 0) return null;
+  const exact = categories.find((c) => c.name.toLowerCase() === suggestedName.toLowerCase());
+  if (exact) return exact.id;
+  const fallback = categories.find((c) => c.name.toLowerCase() === "general inquiry");
+  return (fallback ?? categories[0]).id;
+}
+
 export default function CreateRequest() {
   const router = useRouter();
   const { createRequest, categories } = useAppState();
@@ -46,13 +63,29 @@ export default function CreateRequest() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [attachments, setAttachments] = useState<PickedAsset[]>([]);
 
-  const classification = useMemo(
-    () => (description.trim().length > 8 ? classifyRequest(description) : null),
-    [description],
-  );
+  const [classification, setClassification] = useState<Classification | null>(null);
+
+  useEffect(() => {
+    const trimmed = description.trim();
+    const timeout = setTimeout(async () => {
+      if (trimmed.length <= 8) {
+        setClassification(null);
+        return;
+      }
+      try {
+        const { data } = await apiClient.post<Classification>("/ai/classify", {
+          description: trimmed,
+        });
+        setClassification(data);
+      } catch (e) {
+        console.warn("Failed to classify request", apiErrorMessage(e));
+      }
+    }, 400);
+    return () => clearTimeout(timeout);
+  }, [description]);
 
   const suggestedCategoryId = useMemo(
-    () => (classification ? resolveCategoryId(categories, classification.category) : null),
+    () => (classification ? findCategoryIdByName(categories, classification.category) : null),
     [classification, categories],
   );
 

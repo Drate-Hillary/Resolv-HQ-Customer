@@ -24,7 +24,7 @@
       "package": "com.drate.dev.resolvhqcustomer"
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -52,7 +52,8 @@
           "photosPermission": "Resolv HQ uses your photo library to attach images to a request."
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

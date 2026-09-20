@@ -34,7 +34,7 @@ yarn-error.*
 # except .env.example, which is a template with no real values and is
 # meant to be committed
 .env*
-!.env.example
+.env.example
 
 # typescript
 *.tsbuildinfo
