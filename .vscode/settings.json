@@ -3,5 +3,8 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
+  },
+  "yaml.schemas": {
+    "null": ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]
   }
 }
