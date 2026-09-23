@@ -137,18 +137,18 @@ interface MeResponse extends Omit<UserProfile, "role"> {
 /** resolv-hq-backend's neutral chat shapes (src/types/api.ts ChatConversationOut/ChatMessageOut). */
 interface ChatConversationOut {
   id: string;
+  title: string | null;
+  status: string;
   startedAt: string;
-  endedAt: string | null;
   messageCount: number;
 }
 
 interface ChatMessageOut {
   id: string;
   conversationId: string;
-  role: "user" | "assistant";
+  senderType: "customer" | "assistant" | "system";
   content: string;
   createdAt: string;
-  sources: { id: string; label: string; excerpt: string | null }[];
 }
 
 const DEFAULT_CHAT_STEPS = [
@@ -161,9 +161,8 @@ const DEFAULT_CHAT_STEPS = [
 function mapChatMessageOut(row: ChatMessageOut): ChatMessage {
   return {
     id: row.id,
-    role: row.role,
+    role: row.senderType === "customer" ? "user" : "assistant",
     text: row.content,
-    sources: row.sources.map((s) => ({ id: s.id, title: s.label })),
     createdAt: row.createdAt,
     persisted: true,
   };
@@ -238,9 +237,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           let preview = "New conversation";
           try {
             const { data: msgs } = await apiClient.get<ChatMessageOut[]>(
-              `/chat/conversations/${c.id}/messages`,
+              `/chat/conversations/${c.id}`,
             );
-            const firstUser = msgs.find((m) => m.role === "user");
+            const firstUser = msgs.find((m) => m.senderType === "customer");
             if (firstUser) preview = firstUser.content;
           } catch {
             // keep default preview
@@ -697,7 +696,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const loadConversation = useCallback(async (id: string) => {
     try {
-      const { data } = await apiClient.get<ChatMessageOut[]>(`/chat/conversations/${id}/messages`);
+      const { data } = await apiClient.get<ChatMessageOut[]>(`/chat/conversations/${id}`);
       setChatMessages(data.length > 0 ? data.map(mapChatMessageOut) : [makeWelcomeMessage()]);
       setActiveConversationId(id);
     } catch (e) {
