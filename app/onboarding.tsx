@@ -1,11 +1,5 @@
-import React, { useRef, useState } from "react";
-import {
-  Animated,
-  Dimensions,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { useEffect, useState } from "react";
+import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
@@ -16,153 +10,246 @@ import {
   SparklesIcon,
   TaskDone01Icon,
 } from "@hugeicons/core-free-icons";
+import Animated, {
+  Easing,
+  SlideInDown,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { useAppState } from "@/lib/app-state";
 import Button from "@/components/ui/Button";
-import AnimatedPressable from "@/components/ui/AnimatedPressable";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
-interface Slide {
+interface Feature {
   icon: IconSvgElement;
   title: string;
   description: string;
 }
 
-const SLIDES: Slide[] = [
+const FEATURES: Feature[] = [
   {
     icon: SparklesIcon,
-    title: "Meet your AI\nsupport assistant",
+    title: "Meet your AI support assistant",
     description:
       "Ask anything, anytime. Your assistant is grounded in our approved knowledge base — not guesswork.",
   },
   {
     icon: BookOpen01Icon,
-    title: "Answers you\ncan trust",
+    title: "Answers you can trust",
     description:
       "Every response can show its source, so you always know where the guidance came from.",
   },
   {
     icon: TaskDone01Icon,
-    title: "Track every\nrequest live",
+    title: "Track every request live",
     description:
       "Submit a request in seconds and follow its journey from submission to resolution.",
   },
   {
     icon: SecurityLockIcon,
-    title: "You're always\nin control",
+    title: "You're always in control",
     description:
       "Sensitive actions are reviewed by our team, and you decide what the assistant remembers.",
   },
 ];
 
+const ORBIT_SIZE = 240;
+const ORBIT_RADIUS = 100;
+const BUBBLE_SIZE = 56;
+const ROTATION_DURATION = 16000;
+// Feature i sits at baseAngle = i*(360/count) - 90 (i=0 is top, going clockwise).
+// The bubble nearest the bottom (angle 90) at a given rotation is used to derive
+// which feature card is "active" below the orbit.
+const INITIAL_ACTIVE_INDEX = Math.floor(FEATURES.length / 2);
+
+function OrbitIcons({ rotation }: { rotation: SharedValue<number> }) {
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <View
+      style={{ width: ORBIT_SIZE, height: ORBIT_SIZE }}
+      className="items-center justify-center self-center">
+      <View className="h-24 w-24 items-center justify-center rounded-full bg-black">
+        <HugeiconsIcon
+          icon={SparklesIcon}
+          size={36}
+          color="#ffffff"
+          strokeWidth={1.6}
+        />
+      </View>
+
+      <Animated.View
+        style={[
+          { width: ORBIT_SIZE, height: ORBIT_SIZE, position: "absolute" },
+          ringStyle,
+        ]}>
+        {FEATURES.map((feature, i) => {
+          const angle = (i * 360) / FEATURES.length - 90;
+          const rad = (angle * Math.PI) / 180;
+          const left =
+            ORBIT_SIZE / 2 + ORBIT_RADIUS * Math.cos(rad) - BUBBLE_SIZE / 2;
+          const top =
+            ORBIT_SIZE / 2 + ORBIT_RADIUS * Math.sin(rad) - BUBBLE_SIZE / 2;
+
+          return (
+            <OrbitBubble
+              key={feature.title}
+              icon={feature.icon}
+              baseAngle={angle}
+              left={left}
+              top={top}
+              rotation={rotation}
+            />
+          );
+        })}
+      </Animated.View>
+    </View>
+  );
+}
+
+function OrbitBubble({
+  icon,
+  baseAngle,
+  left,
+  top,
+  rotation,
+}: {
+  icon: IconSvgElement;
+  baseAngle: number;
+  left: number;
+  top: number;
+  rotation: SharedValue<number>;
+}) {
+  const bubbleStyle = useAnimatedStyle(() => {
+    const effective = (((baseAngle + rotation.value) % 360) + 360) % 360;
+    const distanceFromBottom = Math.min(
+      Math.abs(effective - 90),
+      360 - Math.abs(effective - 90),
+    );
+    const emphasis = distanceFromBottom < 45 ? 1 - distanceFromBottom / 45 : 0;
+    return {
+      transform: [{ scale: 1 + 0.2 * emphasis }],
+      backgroundColor: emphasis > 0.5 ? "#111111" : "#fafafa",
+    };
+  });
+
+  const counterStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${-rotation.value}deg` }],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: BUBBLE_SIZE,
+          height: BUBBLE_SIZE,
+          left,
+          top,
+          position: "absolute",
+        },
+        bubbleStyle,
+      ]}
+      className="items-center justify-center rounded-full shadow-sm">
+      <Animated.View style={counterStyle}>
+        <HugeiconsIcon
+          icon={icon}
+          size={22}
+          color="#111111"
+          strokeWidth={1.8}
+        />
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+function ActiveFeatureCard({ feature }: { feature: Feature }) {
+  return (
+    <Animated.View
+      key={feature.title}
+      entering={SlideInDown.duration(850).easing(Easing.out(Easing.cubic))}
+      className="mt-8 rounded-3xl border border-neutral-100 bg-neutral-50 p-5">
+      <View className="h-11 w-11 items-center justify-center rounded-full bg-black">
+        <HugeiconsIcon
+          icon={feature.icon}
+          size={20}
+          color="#ffffff"
+          strokeWidth={1.8}
+        />
+      </View>
+      <Text className="mt-4 font-manrope-bold text-[17px] leading-6 text-black">
+        {feature.title}
+      </Text>
+      <Text className="mt-1.5 font-manrope-medium text-[14px] leading-5 text-neutral-500">
+        {feature.description}
+      </Text>
+    </Animated.View>
+  );
+}
+
 export default function Onboarding() {
   const { completeOnboarding } = useAppState();
   const router = useRouter();
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const [index, setIndex] = useState(0);
-  const isLast = index === SLIDES.length - 1;
+  const rotation = useSharedValue(0);
+  const [activeIndex, setActiveIndex] = useState(INITIAL_ACTIVE_INDEX);
 
-  const goTo = (i: number) => {
-    scrollRef.current?.scrollTo({ x: i * SCREEN_WIDTH, animated: true });
-    setIndex(i);
-  };
+  useEffect(() => {
+    rotation.value = withRepeat(
+      withTiming(360, { duration: ROTATION_DURATION, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, [rotation]);
 
-  const handleNext = () => {
-    if (isLast) {
-      completeOnboarding();
-      router.replace("/sign-in");
-    } else {
-      goTo(index + 1);
-    }
+  useAnimatedReaction(
+    () => rotation.value,
+    (value) => {
+      const count = FEATURES.length;
+      const step = Math.round(value / (360 / count)) % count;
+      const index = (((count / 2 - step) % count) + count) % count;
+      scheduleOnRN(setActiveIndex, index);
+    },
+    [],
+  );
+
+  const handleGetStarted = () => {
+    completeOnboarding();
+    router.replace("/sign-in");
   };
 
   return (
     <SafeAreaView className="flex-1 bg-white">
-      <View className="flex-row justify-end px-6 pt-2">
-        {!isLast && (
-          <AnimatedPressable onPress={() => goTo(SLIDES.length - 1)}>
-            <Text className="font-manrope-semibold text-[14px] text-neutral-400">
-              Skip
-            </Text>
-          </AnimatedPressable>
-        )}
-      </View>
-
-      <Animated.ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
-          useNativeDriver: false,
-        })}
-        scrollEventThrottle={16}
-        onMomentumScrollEnd={(e) => {
-          const i = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-          setIndex(i);
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 28,
+          paddingTop: 24,
+          paddingBottom: 32,
         }}
-      >
-        {SLIDES.map((slide, i) => {
-          const inputRange = [(i - 1) * SCREEN_WIDTH, i * SCREEN_WIDTH, (i + 1) * SCREEN_WIDTH];
-          const scale = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.7, 1, 0.7],
-            extrapolate: "clamp",
-          });
-          const opacity = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.3, 1, 0.3],
-            extrapolate: "clamp",
-          });
-          return (
-            <View key={slide.title} style={{ width: SCREEN_WIDTH }} className="items-center justify-center px-10 pt-10">
-              <Animated.View
-                style={{ transform: [{ scale }], opacity }}
-                className="mb-10 h-40 w-40 items-center justify-center rounded-full bg-neutral-50"
-              >
-                <View className="h-24 w-24 items-center justify-center rounded-full bg-black">
-                  <HugeiconsIcon icon={slide.icon} size={40} color="#ffffff" strokeWidth={1.6} />
-                </View>
-              </Animated.View>
-              <Animated.View style={{ opacity }}>
-                <Text className="text-center font-manrope-extrabold text-[28px] leading-9 text-black">
-                  {slide.title}
-                </Text>
-                <Text className="mt-4 text-center font-manrope-medium text-[14px] leading-6 text-neutral-500">
-                  {slide.description}
-                </Text>
-              </Animated.View>
-            </View>
-          );
-        })}
-      </Animated.ScrollView>
+        showsVerticalScrollIndicator={false}>
+        <Text className="text-center font-manrope-extrabold text-[28px] leading-9 text-black">
+          Welcome to{"\n"}Resolv HQ
+        </Text>
+        <Text className="mt-3 text-center font-manrope-medium text-[14px] leading-6 text-neutral-500">
+          Here&apos;s what you can do from day one.
+        </Text>
 
-      <View className="flex-row items-center justify-center gap-2 pb-8">
-        {SLIDES.map((_, i) => {
-          const inputRange = [(i - 1) * SCREEN_WIDTH, i * SCREEN_WIDTH, (i + 1) * SCREEN_WIDTH];
-          const dotWidth = scrollX.interpolate({
-            inputRange,
-            outputRange: [8, 24, 8],
-            extrapolate: "clamp",
-          });
-          const dotOpacity = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.3, 1, 0.3],
-            extrapolate: "clamp",
-          });
-          return (
-            <Animated.View
-              key={i}
-              style={{ width: dotWidth, opacity: dotOpacity }}
-              className="h-2 rounded-full bg-black"
-            />
-          );
-        })}
-      </View>
+        <View className="mt-10">
+          <OrbitIcons rotation={rotation} />
+        </View>
 
-      <View className="px-7 pb-8">
-        <Button label={isLast ? "Get Started" : "Next"} onPress={handleNext} />
+        <ActiveFeatureCard feature={FEATURES[activeIndex]} />
+      </ScrollView>
+
+      <View className="px-7 pb-8 pt-2">
+        <Button label="Get Started" onPress={handleGetStarted} />
       </View>
     </SafeAreaView>
   );
