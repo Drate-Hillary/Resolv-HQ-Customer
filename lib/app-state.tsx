@@ -4,8 +4,10 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 import * as Linking from "expo-linking";
 import { apiBaseUrl, apiClient, apiErrorMessage, getAccessToken } from "../backend/api-client";
 import { PickedAsset } from "./attachments";
@@ -14,6 +16,7 @@ import {
   AiConversationSummary,
   AppNotification,
   ChatMessage,
+  ChatSource,
   HelpArticle,
   MemoryFact,
   RequestAttachment,
@@ -95,6 +98,7 @@ interface AppStateShape {
   notifications: AppNotification[];
   unreadCount: number;
   markNotificationRead: (id: string) => Promise<void>;
+  refreshNotifications: () => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
 
   chatMessages: ChatMessage[];
@@ -137,19 +141,21 @@ interface MeResponse extends Omit<UserProfile, "role"> {
 /** resolv-hq-backend's neutral chat shapes (src/types/api.ts ChatConversationOut/ChatMessageOut). */
 interface ChatConversationOut {
   id: string;
+  title: string | null;
+  status: string;
   startedAt: string;
-  endedAt: string | null;
   messageCount: number;
 }
 
 interface ChatMessageOut {
   id: string;
   conversationId: string;
-  role: "user" | "assistant";
+  senderType: "customer" | "assistant" | "system";
   content: string;
   createdAt: string;
-  sources: { id: string; label: string; excerpt: string | null }[];
 }
+
+const NOTIFICATION_POLL_MS = 30_000;
 
 const DEFAULT_CHAT_STEPS = [
   "Understanding your request",
@@ -161,9 +167,8 @@ const DEFAULT_CHAT_STEPS = [
 function mapChatMessageOut(row: ChatMessageOut): ChatMessage {
   return {
     id: row.id,
-    role: row.role,
+    role: row.senderType === "customer" ? "user" : "assistant",
     text: row.content,
-    sources: row.sources.map((s) => ({ id: s.id, title: s.label })),
     createdAt: row.createdAt,
     persisted: true,
   };
@@ -238,9 +243,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           let preview = "New conversation";
           try {
             const { data: msgs } = await apiClient.get<ChatMessageOut[]>(
-              `/chat/conversations/${c.id}/messages`,
+              `/chat/conversations/${c.id}`,
             );
-            const firstUser = msgs.find((m) => m.role === "user");
+            const firstUser = msgs.find((m) => m.senderType === "customer");
             if (firstUser) preview = firstUser.content;
           } catch {
             // keep default preview
@@ -292,8 +297,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Notifications, memory facts, and AI conversations are customer-facing
-      // concepts only — agents skip them entirely (the backend also 403s
-      // these routes for a staff caller).
+      // in this app — agents skip them (staff read their own inbox in the
+      // resolv-hq console).
       if (role === "customer") {
         try {
           const [notificationsRes, memoryRes] = await Promise.all([
@@ -668,6 +673,43 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [notifications],
   );
 
+  // Keeps the inbox live: the backend writes notifications on every request
+  // update, staff reply, and escalation decision, so poll while the app is in
+  // the foreground and refetch the moment it returns from the background.
+  const notificationsInFlight = useRef(false);
+  const refreshNotifications = useCallback(async () => {
+    if (notificationsInFlight.current) return;
+    notificationsInFlight.current = true;
+    try {
+      const { data } = await apiClient.get<AppNotification[]>("/notifications");
+      setNotifications(data);
+    } catch (e) {
+      console.warn("Failed to refresh notifications", apiErrorMessage(e));
+    } finally {
+      notificationsInFlight.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !userId || user.role !== "customer") return;
+
+    let interval: ReturnType<typeof setInterval> | null = setInterval(refreshNotifications, NOTIFICATION_POLL_MS);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refreshNotifications();
+        if (!interval) interval = setInterval(refreshNotifications, NOTIFICATION_POLL_MS);
+      } else if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    });
+
+    return () => {
+      if (interval) clearInterval(interval);
+      sub.remove();
+    };
+  }, [isAuthenticated, userId, user.role, refreshNotifications]);
+
   const markNotificationRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     try {
@@ -697,7 +739,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const loadConversation = useCallback(async (id: string) => {
     try {
-      const { data } = await apiClient.get<ChatMessageOut[]>(`/chat/conversations/${id}/messages`);
+      const { data } = await apiClient.get<ChatMessageOut[]>(`/chat/conversations/${id}`);
       setChatMessages(data.length > 0 ? data.map(mapChatMessageOut) : [makeWelcomeMessage()]);
       setActiveConversationId(id);
     } catch (e) {
@@ -747,12 +789,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         const { data } = await apiClient.post<{
           userMessage: ChatMessageOut;
           assistantMessage: ChatMessageOut;
+          sources?: ChatSource[];
+          suggestions?: string[];
         }>(`/chat/conversations/${conversationId}/messages`, { content: text });
 
         setChatMessages((prev) =>
           prev.map((m) => {
             if (m.id === localUserId) return mapChatMessageOut(data.userMessage);
-            if (m.id === pendingId) return mapChatMessageOut(data.assistantMessage);
+            if (m.id === pendingId) {
+              return {
+                ...mapChatMessageOut(data.assistantMessage),
+                sources: data.sources?.map(({ id, title }) => ({ id, title })),
+                suggestions: data.suggestions,
+              };
+            }
             return m;
           }),
         );
@@ -830,6 +880,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     notifications,
     unreadCount,
     markNotificationRead,
+    refreshNotifications,
     markAllNotificationsRead,
     chatMessages,
     activeConversationId,
