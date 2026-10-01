@@ -4,8 +4,10 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 import * as Linking from "expo-linking";
 import { apiBaseUrl, apiClient, apiErrorMessage, getAccessToken } from "../backend/api-client";
 import { PickedAsset } from "./attachments";
@@ -96,6 +98,7 @@ interface AppStateShape {
   notifications: AppNotification[];
   unreadCount: number;
   markNotificationRead: (id: string) => Promise<void>;
+  refreshNotifications: () => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
 
   chatMessages: ChatMessage[];
@@ -151,6 +154,8 @@ interface ChatMessageOut {
   content: string;
   createdAt: string;
 }
+
+const NOTIFICATION_POLL_MS = 30_000;
 
 const DEFAULT_CHAT_STEPS = [
   "Understanding your request",
@@ -292,8 +297,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Notifications, memory facts, and AI conversations are customer-facing
-      // concepts only — agents skip them entirely (the backend also 403s
-      // these routes for a staff caller).
+      // in this app — agents skip them (staff read their own inbox in the
+      // resolv-hq console).
       if (role === "customer") {
         try {
           const [notificationsRes, memoryRes] = await Promise.all([
@@ -668,6 +673,43 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [notifications],
   );
 
+  // Keeps the inbox live: the backend writes notifications on every request
+  // update, staff reply, and escalation decision, so poll while the app is in
+  // the foreground and refetch the moment it returns from the background.
+  const notificationsInFlight = useRef(false);
+  const refreshNotifications = useCallback(async () => {
+    if (notificationsInFlight.current) return;
+    notificationsInFlight.current = true;
+    try {
+      const { data } = await apiClient.get<AppNotification[]>("/notifications");
+      setNotifications(data);
+    } catch (e) {
+      console.warn("Failed to refresh notifications", apiErrorMessage(e));
+    } finally {
+      notificationsInFlight.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !userId || user.role !== "customer") return;
+
+    let interval: ReturnType<typeof setInterval> | null = setInterval(refreshNotifications, NOTIFICATION_POLL_MS);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refreshNotifications();
+        if (!interval) interval = setInterval(refreshNotifications, NOTIFICATION_POLL_MS);
+      } else if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    });
+
+    return () => {
+      if (interval) clearInterval(interval);
+      sub.remove();
+    };
+  }, [isAuthenticated, userId, user.role, refreshNotifications]);
+
   const markNotificationRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     try {
@@ -838,6 +880,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     notifications,
     unreadCount,
     markNotificationRead,
+    refreshNotifications,
     markAllNotificationsRead,
     chatMessages,
     activeConversationId,
