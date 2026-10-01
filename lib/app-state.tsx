@@ -14,6 +14,7 @@ import {
   AiConversationSummary,
   AppNotification,
   ChatMessage,
+  ChatSource,
   HelpArticle,
   MemoryFact,
   RequestAttachment,
@@ -746,12 +747,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         const { data } = await apiClient.post<{
           userMessage: ChatMessageOut;
           assistantMessage: ChatMessageOut;
+          sources?: ChatSource[];
+          suggestions?: string[];
         }>(`/chat/conversations/${conversationId}/messages`, { content: text });
 
         setChatMessages((prev) =>
           prev.map((m) => {
             if (m.id === localUserId) return mapChatMessageOut(data.userMessage);
-            if (m.id === pendingId) return mapChatMessageOut(data.assistantMessage);
+            if (m.id === pendingId) {
+              return {
+                ...mapChatMessageOut(data.assistantMessage),
+                sources: data.sources?.map(({ id, title }) => ({ id, title })),
+                suggestions: data.suggestions,
+              };
+            }
             return m;
           }),
         );
