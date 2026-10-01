@@ -45,7 +45,7 @@ export default function NotificationItem({
           }`}
         >
           <HugeiconsIcon
-            icon={ICONS[notification.type]}
+            icon={ICONS[notification.type] ?? BellIcon}
             size={16}
             color={notification.read ? "#525252" : "#ffffff"}
           />

@@ -1,5 +1,5 @@
-import React, { useMemo } from "react";
-import { SectionList, Text, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { RefreshControl, SectionList, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Notification01Icon } from "@hugeicons/core-free-icons";
@@ -12,8 +12,14 @@ import AnimatedPressable from "@/components/ui/AnimatedPressable";
 
 export default function Alerts() {
   const router = useRouter();
-  const { notifications, unreadCount, markNotificationRead, markAllNotificationsRead } =
+  const { notifications, unreadCount, markNotificationRead, markAllNotificationsRead, refreshNotifications } =
     useAppState();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshNotifications();
+    setRefreshing(false);
+  }, [refreshNotifications]);
 
   const sections = useMemo(() => {
     const buckets = new Map<string, AppNotification[]>();
@@ -52,6 +58,7 @@ export default function Alerts() {
         contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 140 }}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         renderSectionHeader={({ section }) => (
           <Text className="mb-2 mt-3 font-manrope-bold text-[13px] text-neutral-400">
             {section.title}
