@@ -9,7 +9,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 
 export default function SavedInformation() {
-  const { user, memoryFacts, toggleMemoryFact, updatePreferences } = useAppState();
+  const { user, memoryFacts, toggleMemoryFact, deleteAllMemoryFacts, updatePreferences } = useAppState();
   const [exported, setExported] = useState(false);
 
   const handleExport = () => {
@@ -26,11 +26,17 @@ export default function SavedInformation() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => memoryFacts.forEach((f) => f.enabled && toggleMemoryFact(f.id)),
+          onPress: async () => {
+            const result = await deleteAllMemoryFacts();
+            if (result.error) Alert.alert("Couldn't delete saved information", result.error);
+          },
         },
       ],
     );
   };
+
+  const memoryFactLabel = (key: string) =>
+    key.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
@@ -105,10 +111,10 @@ export default function SavedInformation() {
               >
                 <View className="flex-1">
                   <Text className="font-manrope-bold text-[13px] text-black">
-                    {fact.label}
+                    {memoryFactLabel(fact.key)}
                   </Text>
                   <Text className="mt-0.5 font-manrope-medium text-[12px] text-neutral-500">
-                    {fact.detail}
+                    {fact.value}
                   </Text>
                 </View>
                 <Switch
@@ -119,6 +125,11 @@ export default function SavedInformation() {
                 />
               </View>
             ))}
+            {memoryFacts.length === 0 && (
+              <Text className="px-4 py-4 font-manrope-medium text-[12px] text-neutral-500">
+                You have no saved information yet.
+              </Text>
+            )}
           </View>
 
           <Text className="mb-2 font-manrope-bold text-[13px] text-neutral-400">

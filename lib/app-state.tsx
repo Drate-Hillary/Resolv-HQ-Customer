@@ -114,6 +114,7 @@ interface AppStateShape {
 
   memoryFacts: MemoryFact[];
   toggleMemoryFact: (id: string) => Promise<void>;
+  deleteAllMemoryFacts: () => Promise<{ error: string | null }>;
 }
 
 const AppStateContext = createContext<AppStateShape | null>(null);
@@ -429,9 +430,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       >,
     ) => {
       if (!userId) return { error: "You need to be signed in." };
-      setUser((prev) => ({ ...prev, ...patch }));
       try {
         await apiClient.patch("/me/preferences", patch);
+        setUser((prev) => ({ ...prev, ...patch }));
         return { error: null };
       } catch (e) {
         const message = apiErrorMessage(e);
@@ -847,11 +848,25 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       try {
         await apiClient.patch(`/memory-facts/${id}`, { enabled: next });
       } catch (e) {
+        setMemoryFacts((prev) => prev.map((f) => (f.id === id ? current : f)));
         console.warn("Failed to toggle memory fact", apiErrorMessage(e));
       }
     },
     [memoryFacts],
   );
+
+  const deleteAllMemoryFacts = useCallback(async () => {
+    if (!userId) return { error: "You need to be signed in." };
+    try {
+      await apiClient.delete("/memory-facts");
+      setMemoryFacts([]);
+      return { error: null };
+    } catch (e) {
+      const message = apiErrorMessage(e);
+      console.warn("Failed to delete saved information", message);
+      return { error: message };
+    }
+  }, [userId]);
 
   const value: AppStateShape = {
     hasOnboarded,
@@ -893,6 +908,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     helpArticles,
     memoryFacts,
     toggleMemoryFact,
+    deleteAllMemoryFacts,
   };
 
   return (

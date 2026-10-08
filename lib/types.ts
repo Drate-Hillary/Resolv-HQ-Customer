@@ -120,8 +120,8 @@ export interface HelpArticle {
 
 export interface MemoryFact {
   id: string;
-  label: string;
-  detail: string;
+  key: string;
+  value: string;
   enabled: boolean;
 }
 
