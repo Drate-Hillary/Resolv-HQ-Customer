@@ -113,6 +113,7 @@ interface AppStateShape {
   helpArticles: HelpArticle[];
 
   memoryFacts: MemoryFact[];
+  addMemoryFact: (key: string, value: string) => Promise<{ error: string | null }>;
   toggleMemoryFact: (id: string) => Promise<void>;
   deleteAllMemoryFacts: () => Promise<{ error: string | null }>;
 }
@@ -839,6 +840,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   // ---------------------------------------------------------------------
   // Saved information / memory
   // ---------------------------------------------------------------------
+  const addMemoryFact = useCallback(
+    async (key: string, value: string) => {
+      if (!userId) return { error: "You need to be signed in." };
+      try {
+        const res = await apiClient.post<MemoryFact>("/memory-facts", { key, value });
+        setMemoryFacts((prev) => [...prev, res.data]);
+        return { error: null };
+      } catch (e) {
+        const message = apiErrorMessage(e);
+        console.warn("Failed to save information", message);
+        return { error: message };
+      }
+    },
+    [userId],
+  );
+
   const toggleMemoryFact = useCallback(
     async (id: string) => {
       const current = memoryFacts.find((f) => f.id === id);
@@ -907,6 +924,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     refreshConversations,
     helpArticles,
     memoryFacts,
+    addMemoryFact,
     toggleMemoryFact,
     deleteAllMemoryFacts,
   };
