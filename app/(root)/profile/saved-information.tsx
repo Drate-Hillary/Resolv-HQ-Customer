@@ -7,10 +7,30 @@ import { useAppState } from "@/lib/app-state";
 import ScreenHeader from "@/components/ui/ScreenHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
+import FormField from "@/components/ui/FormField";
 
 export default function SavedInformation() {
-  const { user, memoryFacts, toggleMemoryFact, deleteAllMemoryFacts, updatePreferences } = useAppState();
+  const { user, memoryFacts, addMemoryFact, toggleMemoryFact, deleteAllMemoryFacts, updatePreferences } = useAppState();
   const [exported, setExported] = useState(false);
+  const [topic, setTopic] = useState("");
+  const [details, setDetails] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // The backend key must start with a letter: letters, digits, _ . - only.
+  const topicKey = topic.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const canSave = /^[a-z]/.test(topicKey) && details.trim().length > 0 && !saving;
+
+  const handleAdd = async () => {
+    setSaving(true);
+    const result = await addMemoryFact(topicKey.slice(0, 64), details.trim());
+    setSaving(false);
+    if (result.error) {
+      Alert.alert("Couldn't save information", result.error);
+      return;
+    }
+    setTopic("");
+    setDetails("");
+  };
 
   const handleExport = () => {
     setExported(true);
@@ -133,13 +153,32 @@ export default function SavedInformation() {
           </View>
 
           <Text className="mb-2 font-manrope-bold text-[13px] text-neutral-400">
+            ADD INFORMATION
+          </Text>
+          <Card className="mb-6">
+            <FormField
+              label="Topic (e.g. Preferred contact)"
+              value={topic}
+              onChangeText={setTopic}
+              maxLength={64}
+              autoCapitalize="none"
+            />
+            <FormField
+              label="Details (e.g. SMS, weekdays after 5pm)"
+              value={details}
+              onChangeText={setDetails}
+              maxLength={2000}
+            />
+            <Button label="Save" onPress={() => void handleAdd()} disabled={!canSave} loading={saving} />
+          </Card>
+
+          <Text className="mb-2 font-manrope-bold text-[13px] text-neutral-400">
             RETENTION & CONTROL
           </Text>
           <Card className="mb-3">
             <Text className="font-manrope-medium text-[13px] leading-5 text-neutral-600">
-              Request history and preferences are kept for 24 months to help
-              the assistant respond faster. You can export or permanently
-              delete this information at any time.
+              Saved information is kept until you delete it. You can turn it off
+              or permanently delete it at any time.
             </Text>
           </Card>
 
