@@ -10,6 +10,7 @@ import React, {
 import { AppState } from "react-native";
 import * as Linking from "expo-linking";
 import { apiBaseUrl, apiClient, apiErrorMessage, getAccessToken } from "../backend/api-client";
+import { toast } from "./toast";
 import { PickedAsset } from "./attachments";
 import { supabase } from "../backend/supabase/client";
 import {
@@ -281,6 +282,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         setUser({ ...profile, role });
       } catch (e) {
         console.warn("Failed to load profile", apiErrorMessage(e));
+        toast.error("Couldn't load your profile", apiErrorMessage(e));
       }
 
       try {
@@ -296,6 +298,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         setHelpArticles(helpRes.data);
       } catch (e) {
         console.warn("Failed to load requests", apiErrorMessage(e));
+        toast.error("Couldn't load your requests", apiErrorMessage(e));
       }
 
       // Notifications, memory facts, and AI conversations are customer-facing
@@ -311,6 +314,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           setMemoryFacts(memoryRes.data);
         } catch (e) {
           console.warn("Failed to load notifications", apiErrorMessage(e));
+          toast.error("Couldn't load your notifications", apiErrorMessage(e));
         }
         loadConversationsList();
       }
@@ -438,6 +442,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         const message = apiErrorMessage(e);
         console.warn("Failed to update preferences", message);
+        toast.error("Couldn't save your preference", message);
         return { error: message };
       }
     },
@@ -486,6 +491,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         return row;
       } catch (e) {
         console.warn("Attachment upload failed", e);
+        toast.error("Attachment upload failed", e instanceof Error ? e.message : "Please try again.");
         return null;
       }
     },
@@ -550,6 +556,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         return newRequest;
       } catch (e) {
         console.warn("Failed to create request", apiErrorMessage(e));
+        toast.error("Couldn't submit your request", apiErrorMessage(e));
         return null;
       }
     },
@@ -567,6 +574,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       return data;
     } catch (e) {
       console.warn("Failed to send message", apiErrorMessage(e));
+      toast.error("Message not sent", apiErrorMessage(e));
       return null;
     }
   }, []);
@@ -589,6 +597,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         const message = apiErrorMessage(e);
         console.warn("Failed to submit feedback", message);
+        toast.error("Couldn't submit feedback", message);
         return { error: message };
       }
     },
@@ -603,6 +612,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       );
     } catch (e) {
       console.warn("Failed to load request detail", apiErrorMessage(e));
+      toast.error("Couldn't load this request", apiErrorMessage(e));
     }
   }, []);
 
@@ -624,6 +634,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         return data;
       } catch (e) {
         console.warn("Failed to send support message", apiErrorMessage(e));
+        toast.error("Message not sent", apiErrorMessage(e));
         return null;
       }
     },
@@ -645,6 +656,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       const message = apiErrorMessage(e);
       console.warn("Failed to update request status", message);
+      toast.error("Couldn't update the status", message);
       return { error: message };
     }
   }, []);
@@ -661,6 +673,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         const message = apiErrorMessage(e);
         console.warn("Failed to assign request", message);
+        toast.error("Couldn't assign this ticket", message);
         return { error: message };
       }
     },
@@ -718,6 +731,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       await apiClient.patch(`/notifications/${id}/read`);
     } catch (e) {
       console.warn("Failed to mark notification read", apiErrorMessage(e));
+      toast.error("Couldn't update the notification", apiErrorMessage(e));
     }
   }, []);
 
@@ -728,6 +742,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       await apiClient.patch("/notifications/read-all");
     } catch (e) {
       console.warn("Failed to mark all notifications read", apiErrorMessage(e));
+      toast.error("Couldn't mark notifications as read", apiErrorMessage(e));
     }
   }, [userId]);
 
@@ -746,6 +761,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setActiveConversationId(id);
     } catch (e) {
       console.warn("Failed to load conversation", apiErrorMessage(e));
+      toast.error("Couldn't open that conversation", apiErrorMessage(e));
     }
   }, []);
 
@@ -834,6 +850,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       await apiClient.patch(`/chat/messages/${id}/feedback`, { feedback });
     } catch (e) {
       console.warn("Failed to persist feedback", apiErrorMessage(e));
+      toast.error("Couldn't save your feedback", apiErrorMessage(e));
     }
   }, []);
 
@@ -867,6 +884,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         setMemoryFacts((prev) => prev.map((f) => (f.id === id ? current : f)));
         console.warn("Failed to toggle memory fact", apiErrorMessage(e));
+        toast.error("Couldn't update saved information", apiErrorMessage(e));
       }
     },
     [memoryFacts],

@@ -2,7 +2,6 @@ import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { HugeiconsIcon } from "@hugeicons/react-native";
 import { Ticket01Icon, User03Icon } from "@hugeicons/core-free-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useAppState } from "@/lib/app-state";
