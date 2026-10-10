@@ -4,7 +4,6 @@ import { Tabs } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import {
-  Home01Icon,
   TaskDone01Icon,
   SparklesIcon,
   Notification01Icon,

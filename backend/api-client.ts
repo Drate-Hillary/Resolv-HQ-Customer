@@ -56,12 +56,23 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-/** Extracts resolv-hq-backend's `{ error: string }` body, falling back to axios's own message. */
+/** Extracts resolv-hq-backend's `{ error: string }` body, with plain-language fallbacks for common failures. */
 export function apiErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data as { error?: string } | undefined;
-    if (data?.error) return data.error;
-    return err.message;
+    const status = err.response?.status;
+    if (!err.response) {
+      return err.code === "ECONNABORTED"
+        ? "The request timed out. Please try again."
+        : "Can't reach the server. Check your connection and try again.";
+    }
+    if (data?.error && (!status || status < 500)) return data.error;
+    if (status === 401) return "Your session has expired. Please sign in again.";
+    if (status === 403) return "You don't have permission to do that.";
+    if (status === 404) return "That item could not be found.";
+    if (status === 429) return "Too many requests. Please wait a moment and try again.";
+    if (status && status >= 500) return "Something went wrong on our side. Please try again shortly.";
+    return data?.error ?? err.message;
   }
   return err instanceof Error ? err.message : "Something went wrong.";
 }
