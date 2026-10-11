@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import Animated, { FadeIn } from "react-native-reanimated";
+import AgentThinkingOrb from "./AgentThinkingOrb";
 
 /**
  * Friendly, high-level "the assistant is working" status list. This stands in
@@ -32,7 +33,7 @@ export default function TypingSteps({ steps }: { steps: string[] }) {
             {done ? (
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} color="#000000" />
             ) : (
-              <PulsingDot />
+              <AgentThinkingOrb size={20} />
             )}
             <Text
               className={`font-manrope-medium text-[13px] ${
@@ -44,14 +45,6 @@ export default function TypingSteps({ steps }: { steps: string[] }) {
           </Animated.View>
         );
       })}
-    </View>
-  );
-}
-
-function PulsingDot() {
-  return (
-    <View className="h-3.5 w-3.5 items-center justify-center">
-      <View className="h-2 w-2 rounded-full bg-black" />
     </View>
   );
 }

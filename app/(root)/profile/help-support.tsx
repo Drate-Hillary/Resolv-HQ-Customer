@@ -1,5 +1,5 @@
 import React from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Linking, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
@@ -14,9 +14,12 @@ import type { IconSvgElement } from "@hugeicons/react-native";
 import ScreenHeader from "@/components/ui/ScreenHeader";
 import AnimatedPressable from "@/components/ui/AnimatedPressable";
 import Card from "@/components/ui/Card";
+import { useAppState } from "@/lib/app-state";
 
 export default function HelpSupport() {
   const router = useRouter();
+  const { content } = useAppState();
+  const support = content?.support;
 
   const options: { icon: IconSvgElement; label: string; detail: string; onPress: () => void }[] = [
     {
@@ -68,18 +71,24 @@ export default function HelpSupport() {
             ))}
           </View>
 
-          <Card>
-            <View className="flex-row items-center gap-2">
-              <HugeiconsIcon icon={Mail01Icon} size={16} color="#171717" />
-              <Text className="font-manrope-bold text-[13px] text-black">
-                Still need a human?
+          {support && (
+            <Card>
+              <View className="flex-row items-center gap-2">
+                <HugeiconsIcon icon={Mail01Icon} size={16} color="#171717" />
+                <Text className="font-manrope-bold text-[13px] text-black">{support.heading}</Text>
+              </View>
+              <Text className="mt-1.5 font-manrope-medium text-[12px] leading-5 text-neutral-500">
+                Our support team typically replies within {support.responseTime} at{" "}
+                <Text
+                  className="font-manrope-semibold text-black"
+                  onPress={() => Linking.openURL(`mailto:${support.email}`)}
+                >
+                  {support.email}
+                </Text>
+                .
               </Text>
-            </View>
-            <Text className="mt-1.5 font-manrope-medium text-[12px] leading-5 text-neutral-500">
-              Our support team typically replies within one business day at
-              support@resolvhq.com.
-            </Text>
-          </Card>
+            </Card>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>

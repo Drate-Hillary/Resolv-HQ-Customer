@@ -8,6 +8,8 @@ import SourceTag from "@/components/SourceTag";
 import ThumbsFeedback from "@/components/ui/ThumbsFeedback";
 import Card from "@/components/ui/Card";
 import Chip from "@/components/ui/Chip";
+import Button from "@/components/ui/Button";
+import { openArticleFile } from "@/lib/documents";
 
 export default function HelpArticleDetail() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -15,6 +17,7 @@ export default function HelpArticleDetail() {
   const router = useRouter();
   const article = helpArticles.find((a) => a.slug === slug);
   const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
+  const [opening, setOpening] = useState(false);
 
   if (!article) return <Redirect href="/help" />;
 
@@ -36,6 +39,20 @@ export default function HelpArticleDetail() {
               </Text>
             ))}
           </View>
+
+          {article.hasFile && (
+            <View className="mt-6">
+              <Button
+                label={/pdf/i.test(article.fileType ?? "") ? "Open PDF" : "Open attached file"}
+                loading={opening}
+                onPress={async () => {
+                  setOpening(true);
+                  await openArticleFile(article.id, article.title);
+                  setOpening(false);
+                }}
+              />
+            </View>
+          )}
 
           <Card className="mt-8">
             <Text className="font-manrope-bold text-[14px] text-black">

@@ -11,6 +11,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import ToastHost from "@/components/ui/ToastHost";
 import { AppStateProvider } from "@/lib/app-state";
 import "../global.css";
 
@@ -42,6 +43,7 @@ export default function RootLayout() {
           <Stack.Screen name="(root)" />
           <Stack.Screen name="(agent)" />
         </Stack>
+        <ToastHost />
       </AppStateProvider>
     </GestureHandlerRootView>
   );
