@@ -116,6 +116,9 @@ export interface HelpArticle {
   body: string[];
   source: string;
   readMinutes: number;
+  /** True when a file (e.g. a PDF guide) is attached to the article. */
+  hasFile?: boolean;
+  fileType?: string | null;
 }
 
 export interface MemoryFact {
@@ -138,4 +141,20 @@ export interface UserProfile {
   emailNotifications: boolean;
   aiPersonalization: boolean;
   memoryEnabled: boolean;
+}
+
+/** Copy served by GET /app-content (the app_content table) — nothing here is bundled in the app. */
+export type ContentIcon = "sparkles" | "book" | "tasks" | "lock" | "shield" | "database";
+
+export interface AppContent {
+  onboarding: {
+    title: string;
+    subtitle: string;
+    cta: string;
+    features: { icon: ContentIcon; title: string; description: string }[];
+  };
+  privacy: { sections: { icon: ContentIcon; title: string; body: string }[] };
+  support: { heading: string; email: string; responseTime: string };
+  chat: { welcomeMessage: string; suggestions: string[]; steps: string[] };
+  request_status_copy: Record<RequestStatus, string>;
 }

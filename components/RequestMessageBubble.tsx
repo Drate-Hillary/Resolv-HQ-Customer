@@ -5,6 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native";
 import { File01Icon } from "@hugeicons/core-free-icons";
 import { RequestAttachment, RequestMessage } from "@/lib/types";
 import { formatClock } from "@/lib/format";
+import { isPdf, openDocument } from "@/lib/documents";
 
 const SENDER_LABEL: Record<RequestMessage["sender"], string> = {
   customer: "You",
@@ -16,7 +17,11 @@ function AttachmentChip({ attachment }: { attachment: RequestAttachment }) {
   const isImage = attachment.fileType?.startsWith("image/");
   return (
     <Pressable
-      onPress={() => Linking.openURL(attachment.fileUrl)}
+      onPress={() =>
+        isImage
+          ? Linking.openURL(attachment.fileUrl)
+          : openDocument(attachment.fileUrl, attachment.fileName, attachment.fileType)
+      }
       className="mt-2 flex-row items-center gap-2 self-start rounded-2xl border border-neutral-200 bg-white px-2.5 py-2"
     >
       {isImage ? (
@@ -33,6 +38,9 @@ function AttachmentChip({ attachment }: { attachment: RequestAttachment }) {
       <Text className="max-w-[160px] font-manrope-semibold text-[12px] text-neutral-700" numberOfLines={1}>
         {attachment.fileName}
       </Text>
+      {isPdf(attachment.fileType, attachment.fileName) && (
+        <Text className="font-manrope-bold text-[10px] text-neutral-400">PDF</Text>
+      )}
     </Pressable>
   );
 }

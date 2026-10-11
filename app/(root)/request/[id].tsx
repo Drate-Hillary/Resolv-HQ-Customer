@@ -14,7 +14,6 @@ import { Redirect, useLocalSearchParams } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { Attachment01Icon, SendIcon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { useAppState } from "@/lib/app-state";
-import { RequestStatus } from "@/lib/types";
 import { pickDocumentAttachment, pickImageAttachment } from "@/lib/attachments";
 import ScreenHeader from "@/components/ui/ScreenHeader";
 import StatusPill from "@/components/ui/StatusPill";
@@ -25,17 +24,9 @@ import StarRating from "@/components/ui/StarRating";
 import Button from "@/components/ui/Button";
 import AnimatedPressable from "@/components/ui/AnimatedPressable";
 
-const STATUS_COPY: Record<RequestStatus, string> = {
-  submitted: "We've received your request and it's queued for processing.",
-  processing: "We're actively working through the details of your request.",
-  review: "We're reviewing your request. A specialist is confirming the best next step.",
-  needs_info: "We need a bit more information from you before we can continue.",
-  completed: "This request has been completed.",
-};
-
 export default function RequestDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getRequest, loadRequestDetail, sendRequestMessage, addRequestAttachment, submitRequestFeedback } =
+  const { getRequest, loadRequestDetail, sendRequestMessage, addRequestAttachment, submitRequestFeedback, content } =
     useAppState();
   const request = getRequest(String(id));
   const [draft, setDraft] = useState("");
@@ -118,7 +109,7 @@ export default function RequestDetail() {
             </Text>
             <Card className="mb-4">
               <Text className="font-manrope-medium text-[14px] leading-5 text-black">
-                {STATUS_COPY[request.status]}
+                {content?.request_status_copy[request.status] ?? ""}
               </Text>
             </Card>
 
