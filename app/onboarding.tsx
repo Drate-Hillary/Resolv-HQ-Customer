@@ -4,12 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import type { IconSvgElement } from "@hugeicons/react-native";
-import {
-  BookOpen01Icon,
-  SecurityLockIcon,
-  SparklesIcon,
-  TaskDone01Icon,
-} from "@hugeicons/core-free-icons";
+import { SparklesIcon } from "@hugeicons/core-free-icons";
 import Animated, {
   Easing,
   SlideInDown,
@@ -23,39 +18,11 @@ import Animated, {
 import { scheduleOnRN } from "react-native-worklets";
 import { useAppState } from "@/lib/app-state";
 import Button from "@/components/ui/Button";
+import ContentGate from "@/components/ui/ContentGate";
+import { contentIcon } from "@/lib/content-icons";
+import type { AppContent } from "@/lib/types";
 
-interface Feature {
-  icon: IconSvgElement;
-  title: string;
-  description: string;
-}
-
-const FEATURES: Feature[] = [
-  {
-    icon: SparklesIcon,
-    title: "Meet your AI support assistant",
-    description:
-      "Ask anything, anytime. Your assistant is grounded in our approved knowledge base — not guesswork.",
-  },
-  {
-    icon: BookOpen01Icon,
-    title: "Answers you can trust",
-    description:
-      "Every response can show its source, so you always know where the guidance came from.",
-  },
-  {
-    icon: TaskDone01Icon,
-    title: "Track every request live",
-    description:
-      "Submit a request in seconds and follow its journey from submission to resolution.",
-  },
-  {
-    icon: SecurityLockIcon,
-    title: "You're always in control",
-    description:
-      "Sensitive actions are reviewed by our team, and you decide what the assistant remembers.",
-  },
-];
+type Feature = AppContent["onboarding"]["features"][number];
 
 const ORBIT_SIZE = 240;
 const ORBIT_RADIUS = 100;
@@ -64,9 +31,8 @@ const ROTATION_DURATION = 16000;
 // Feature i sits at baseAngle = i*(360/count) - 90 (i=0 is top, going clockwise).
 // The bubble nearest the bottom (angle 90) at a given rotation is used to derive
 // which feature card is "active" below the orbit.
-const INITIAL_ACTIVE_INDEX = Math.floor(FEATURES.length / 2);
 
-function OrbitIcons({ rotation }: { rotation: SharedValue<number> }) {
+function OrbitIcons({ rotation, features }: { rotation: SharedValue<number>; features: Feature[] }) {
   const ringStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${rotation.value}deg` }],
   }));
@@ -89,8 +55,8 @@ function OrbitIcons({ rotation }: { rotation: SharedValue<number> }) {
           { width: ORBIT_SIZE, height: ORBIT_SIZE, position: "absolute" },
           ringStyle,
         ]}>
-        {FEATURES.map((feature, i) => {
-          const angle = (i * 360) / FEATURES.length - 90;
+        {features.map((feature, i) => {
+          const angle = (i * 360) / features.length - 90;
           const rad = (angle * Math.PI) / 180;
           const left =
             ORBIT_SIZE / 2 + ORBIT_RADIUS * Math.cos(rad) - BUBBLE_SIZE / 2;
@@ -100,7 +66,7 @@ function OrbitIcons({ rotation }: { rotation: SharedValue<number> }) {
           return (
             <OrbitBubble
               key={feature.title}
-              icon={feature.icon}
+              icon={contentIcon(feature.icon)}
               baseAngle={angle}
               left={left}
               top={top}
@@ -176,7 +142,7 @@ function ActiveFeatureCard({ feature }: { feature: Feature }) {
       className="mt-8 rounded-3xl border border-neutral-100 bg-neutral-50 p-5">
       <View className="h-11 w-11 items-center justify-center rounded-full bg-black">
         <HugeiconsIcon
-          icon={feature.icon}
+          icon={contentIcon(feature.icon)}
           size={20}
           color="#ffffff"
           strokeWidth={1.8}
@@ -193,10 +159,23 @@ function ActiveFeatureCard({ feature }: { feature: Feature }) {
 }
 
 export default function Onboarding() {
+  const { content, contentLoading, contentError, reloadContent } = useAppState();
+  if (!content || content.onboarding.features.length === 0) {
+    return (
+      <SafeAreaView className="flex-1 bg-white">
+        <ContentGate loading={contentLoading} error={contentError} onRetry={reloadContent} />
+      </SafeAreaView>
+    );
+  }
+  return <OnboardingBody copy={content.onboarding} />;
+}
+
+function OnboardingBody({ copy }: { copy: AppContent["onboarding"] }) {
   const { completeOnboarding } = useAppState();
   const router = useRouter();
   const rotation = useSharedValue(0);
-  const [activeIndex, setActiveIndex] = useState(INITIAL_ACTIVE_INDEX);
+  const features = copy.features;
+  const [activeIndex, setActiveIndex] = useState(Math.floor(features.length / 2));
 
   useEffect(() => {
     rotation.value = withRepeat(
@@ -209,12 +188,12 @@ export default function Onboarding() {
   useAnimatedReaction(
     () => rotation.value,
     (value) => {
-      const count = FEATURES.length;
+      const count = features.length;
       const step = Math.round(value / (360 / count)) % count;
       const index = (((count / 2 - step) % count) + count) % count;
       scheduleOnRN(setActiveIndex, index);
     },
-    [],
+    [features.length],
   );
 
   const handleGetStarted = () => {
@@ -235,21 +214,21 @@ export default function Onboarding() {
         }}
         showsVerticalScrollIndicator={false}>
         <Text className="text-center font-manrope-extrabold text-[28px] leading-9 text-black">
-          Welcome to{"\n"}Resolv HQ
+          {copy.title}
         </Text>
         <Text className="mt-3 text-center font-manrope-medium text-[14px] leading-6 text-neutral-500">
-          Here&apos;s what you can do from day one.
+          {copy.subtitle}
         </Text>
 
         <View className="mt-10">
-          <OrbitIcons rotation={rotation} />
+          <OrbitIcons rotation={rotation} features={features} />
         </View>
 
-        <ActiveFeatureCard feature={FEATURES[activeIndex]} />
+        <ActiveFeatureCard feature={features[activeIndex] ?? features[0]} />
       </ScrollView>
 
       <View className="px-7 pb-8 pt-2">
-        <Button label="Get Started" onPress={handleGetStarted} />
+        <Button label={copy.cta} onPress={handleGetStarted} />
       </View>
     </SafeAreaView>
   );

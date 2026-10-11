@@ -15,6 +15,7 @@ import { PickedAsset } from "./attachments";
 import { supabase } from "../backend/supabase/client";
 import {
   AiConversationSummary,
+  AppContent,
   AppNotification,
   ChatMessage,
   ChatSource,
@@ -113,6 +114,12 @@ interface AppStateShape {
 
   helpArticles: HelpArticle[];
 
+  /** Server-driven copy (onboarding, privacy, support contact, status text). Null until loaded. */
+  content: AppContent | null;
+  contentLoading: boolean;
+  contentError: string | null;
+  reloadContent: () => Promise<void>;
+
   memoryFacts: MemoryFact[];
   addMemoryFact: (key: string, value: string) => Promise<{ error: string | null }>;
   toggleMemoryFact: (id: string) => Promise<void>;
@@ -160,13 +167,6 @@ interface ChatMessageOut {
 
 const NOTIFICATION_POLL_MS = 30_000;
 
-const DEFAULT_CHAT_STEPS = [
-  "Understanding your request",
-  "Checking available information",
-  "Finding relevant guidance",
-  "Preparing your response",
-];
-
 function mapChatMessageOut(row: ChatMessageOut): ChatMessage {
   return {
     id: row.id,
@@ -185,17 +185,13 @@ function initialsFromName(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function makeWelcomeMessage(): ChatMessage {
+function makeWelcomeMessage(chat: AppContent["chat"]): ChatMessage {
   return {
     id: "welcome",
     role: "assistant",
-    text: "Hi! I'm your Resolv HQ assistant. Ask me anything about your account, or how to get something done — I'll ground my answers in our approved help content.",
+    text: chat.welcomeMessage,
     createdAt: new Date().toISOString(),
-    suggestions: [
-      "How do I submit a request?",
-      "What's the status of my last request?",
-      "How does the AI assistant work?",
-    ],
+    suggestions: chat.suggestions,
   };
 }
 
@@ -214,18 +210,43 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [helpArticles, setHelpArticles] = useState<HelpArticle[]>([]);
   const [memoryFacts, setMemoryFacts] = useState<MemoryFact[]>([]);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([makeWelcomeMessage()]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AiConversationSummary[]>([]);
 
   const completeOnboarding = useCallback(() => setHasOnboarded(true), []);
+
+  // Server-driven copy. Public endpoint, so it loads before sign-in (onboarding needs it).
+  const [content, setContent] = useState<AppContent | null>(null);
+  const [contentLoading, setContentLoading] = useState(true);
+  const [contentError, setContentError] = useState<string | null>(null);
+
+  const reloadContent = useCallback(async () => {
+    setContentLoading(true);
+    setContentError(null);
+    try {
+      const { data } = await apiClient.get<AppContent>("/app-content");
+      setContent(data);
+    } catch (e) {
+      const message = apiErrorMessage(e);
+      console.warn("Failed to load app content", message);
+      setContentError(message);
+      toast.error("Couldn't load app content", message);
+    } finally {
+      setContentLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadContent();
+  }, [reloadContent]);
 
   const resetLocalState = useCallback(() => {
     setUser(DEFAULT_USER);
     setRequests([]);
     setNotifications([]);
     setMemoryFacts([]);
-    setChatMessages([makeWelcomeMessage()]);
+    setChatMessages([]);
     setActiveConversationId(null);
     setConversations([]);
   }, []);
@@ -757,7 +778,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const loadConversation = useCallback(async (id: string) => {
     try {
       const { data } = await apiClient.get<ChatMessageOut[]>(`/chat/conversations/${id}`);
-      setChatMessages(data.length > 0 ? data.map(mapChatMessageOut) : [makeWelcomeMessage()]);
+      setChatMessages(data.map(mapChatMessageOut));
       setActiveConversationId(id);
     } catch (e) {
       console.warn("Failed to load conversation", apiErrorMessage(e));
@@ -767,7 +788,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const resetChat = useCallback(() => {
     setActiveConversationId(null);
-    setChatMessages([makeWelcomeMessage()]);
+    setChatMessages([]);
   }, []);
 
   const sendChatMessage = useCallback(
@@ -786,7 +807,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         role: "assistant",
         text: "",
         pending: true,
-        steps: DEFAULT_CHAT_STEPS,
+        steps: content?.chat.steps,
         createdAt: new Date().toISOString(),
       };
       setChatMessages((prev) => [...prev, userMessage, pendingMessage]);
@@ -840,12 +861,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         );
       }
     },
-    [activeConversationId, userId, refreshConversations],
+    [activeConversationId, userId, refreshConversations, content],
   );
 
   const rateChatMessage = useCallback(async (id: string, feedback: "up" | "down") => {
     setChatMessages((prev) => prev.map((m) => (m.id === id ? { ...m, feedback } : m)));
-    if (id.startsWith("local-")) return; // never made it to a real row
+    if (id.startsWith("local-") || id === "welcome") return; // never made it to a real row
     try {
       await apiClient.patch(`/chat/messages/${id}/feedback`, { feedback });
     } catch (e) {
@@ -903,6 +924,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userId]);
 
+  // The greeting comes from the database; shown only while the thread is empty.
+  const displayedChatMessages = useMemo(
+    () =>
+      chatMessages.length === 0 && content?.chat ? [makeWelcomeMessage(content.chat)] : chatMessages,
+    [chatMessages, content],
+  );
+
   const value: AppStateShape = {
     hasOnboarded,
     completeOnboarding,
@@ -932,7 +960,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     markNotificationRead,
     refreshNotifications,
     markAllNotificationsRead,
-    chatMessages,
+    chatMessages: displayedChatMessages,
     activeConversationId,
     conversations,
     sendChatMessage,
@@ -941,6 +969,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     loadConversation,
     refreshConversations,
     helpArticles,
+    content,
+    contentLoading,
+    contentError,
+    reloadContent,
     memoryFacts,
     addMemoryFact,
     toggleMemoryFact,
