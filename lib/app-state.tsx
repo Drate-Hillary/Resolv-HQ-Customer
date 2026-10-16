@@ -11,6 +11,7 @@ import { AppState } from "react-native";
 import * as Linking from "expo-linking";
 import { apiBaseUrl, apiClient, apiErrorMessage, getAccessToken } from "../backend/api-client";
 import { toast } from "./toast";
+import { connectRealtime } from "./realtime";
 import { PickedAsset } from "./attachments";
 import { supabase } from "../backend/supabase/client";
 import {
@@ -380,6 +381,29 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live updates over WebSocket: staff replies and notifications show up the
+  // moment they happen. Open only while signed in; closes on sign-out.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    return connectRealtime((event) => {
+      if (event.type === "notification") {
+        setNotifications((prev) =>
+          prev.some((n) => n.id === event.notification.id) ? prev : [event.notification, ...prev],
+        );
+        toast.info(event.notification.title, event.notification.body);
+      } else if (event.type === "message") {
+        // The sender's own device gets it too; skip a message already in the thread.
+        setRequests((prev) =>
+          prev.map((r) =>
+            r.id === event.requestId && !r.messages.some((m) => m.id === event.message.id)
+              ? { ...r, messages: [...r.messages, event.message] }
+              : r,
+          ),
+        );
+      }
+    });
+  }, [isAuthenticated]);
 
   // ---------------------------------------------------------------------
   // Auth — Supabase Auth is called directly; this is an intentional scope
