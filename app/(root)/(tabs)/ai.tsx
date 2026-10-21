@@ -24,6 +24,9 @@ import ChatBubble from "@/components/ChatBubble";
 import IconButton from "@/components/ui/IconButton";
 import AnimatedPressable from "@/components/ui/AnimatedPressable";
 
+/** Keep in step with MAX_MESSAGES_PER_CONVERSATION in resolv-hq-backend/src/routes/chat.ts. */
+const MAX_CHAT_MESSAGES = 50;
+
 export default function AiAssistant() {
   const router = useRouter();
   const { chatMessages, sendChatMessage, rateChatMessage, resetChat } = useAppState();
@@ -39,13 +42,14 @@ export default function AiAssistant() {
 
   const handleSend = (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || limitReached) return;
     sendChatMessage(trimmed);
     setDraft("");
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   };
 
-  const canSend = draft.trim().length > 0;
+  const limitReached = chatMessages.filter((m) => m.role === "user").length >= MAX_CHAT_MESSAGES;
+  const canSend = draft.trim().length > 0 && !limitReached;
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
@@ -126,6 +130,20 @@ export default function AiAssistant() {
         )}
 
         <View className="px-4 pb-28 pt-2">
+          {limitReached ? (
+            <View className="items-center rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-4">
+              <Text className="text-center font-manrope-medium text-[13px] text-neutral-600">
+                This chat has reached its {MAX_CHAT_MESSAGES}-message limit. Start a new chat to keep going.
+              </Text>
+              <AnimatedPressable
+                scaleTo={0.95}
+                onPress={resetChat}
+                className="mt-3 rounded-full bg-black px-5 py-2.5"
+              >
+                <Text className="font-manrope-semibold text-[13px] text-white">New chat</Text>
+              </AnimatedPressable>
+            </View>
+          ) : (
           <View className="flex-row items-end gap-1 rounded-[28px] border border-neutral-200 bg-white py-1.5 pl-4 pr-1.5 shadow-sm">
             <TextInput
               value={draft}
@@ -155,6 +173,7 @@ export default function AiAssistant() {
               <HugeiconsIcon icon={ArrowUp02Icon} size={18} color="#ffffff" strokeWidth={2.25} />
             </AnimatedPressable>
           </View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
