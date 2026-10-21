@@ -43,10 +43,10 @@ function ToastCard({ item }: { item: ToastItem }) {
         accessibilityRole="alert"
         accessibilityLabel={`${style.label}: ${item.title}`}
         accessibilityHint="Tap to dismiss"
-        className="flex-row items-start gap-3 rounded-2xl bg-neutral-900 px-4 py-3.5"
+        className="flex-row items-start gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-3.5"
         style={{
           shadowColor: "#000",
-          shadowOpacity: 0.25,
+          shadowOpacity: 0.12,
           shadowRadius: 12,
           shadowOffset: { width: 0, height: 6 },
           elevation: 8,
@@ -58,9 +58,9 @@ function ToastCard({ item }: { item: ToastItem }) {
           <HugeiconsIcon icon={style.icon} size={20} color={style.accent} strokeWidth={2} />
         </View>
         <View className="flex-1">
-          <Text className="font-manrope-bold text-[14px] text-white">{item.title}</Text>
+          <Text className="font-manrope-bold text-[14px] text-black">{item.title}</Text>
           {item.description ? (
-            <Text className="mt-0.5 font-manrope-medium text-[12.5px] leading-[18px] text-neutral-300">
+            <Text className="mt-0.5 font-manrope-medium text-[12.5px] leading-[18px] text-black">
               {item.description}
             </Text>
           ) : null}

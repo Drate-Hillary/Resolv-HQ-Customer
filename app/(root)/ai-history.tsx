@@ -23,12 +23,13 @@ export default function AiHistory() {
 
   const openConversation = async (id: string) => {
     await loadConversation(id);
-    router.push("/ai");
+    // The tabs are already underneath this screen; go back to them instead of stacking a second copy.
+    router.dismissTo("/ai");
   };
 
   const startNew = () => {
     resetChat();
-    router.push("/ai");
+    router.dismissTo("/ai");
   };
 
   return (
