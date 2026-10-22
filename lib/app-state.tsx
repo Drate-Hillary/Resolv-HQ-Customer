@@ -7,7 +7,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
+import { File as FsFile } from "expo-file-system";
 import * as Linking from "expo-linking";
 import { apiBaseUrl, apiClient, apiErrorMessage, getAccessToken } from "../backend/api-client";
 import { toast } from "./toast";
@@ -76,7 +77,7 @@ interface AppStateShape {
     categoryId: string | null,
     attachments?: PickedAsset[],
   ) => Promise<ServiceRequest | null>;
-  sendRequestMessage: (requestId: string, text: string) => Promise<RequestMessage | null>;
+  sendRequestMessage: (requestId: string, text: string, forAttachment?: boolean) => Promise<RequestMessage | null>;
   submitRequestFeedback: (
     requestId: string,
     rating: number,
@@ -515,11 +516,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (!userId) return null;
       try {
         const form = new FormData();
-        form.append("file", {
-          uri: asset.uri,
-          name: asset.name,
-          type: asset.mimeType ?? "application/octet-stream",
-        } as unknown as Blob);
+        const type = asset.mimeType ?? "application/octet-stream";
+        if (Platform.OS === "web") {
+          // Browsers need a real Blob/File; the {uri, name, type} shape is React Native only
+          // and would be sent as the text "[object Object]", leaving the server with no file.
+          const blob = await (await fetch(asset.uri)).blob();
+          form.append("file", new File([blob], asset.name, { type }));
+        } else {
+          // Expo's fetch only accepts Blob-like parts (with bytes()); the older {uri, name, type}
+          // shape throws "Unsupported FormDataPart implementation". expo-file-system's File is
+          // Blob-like, wrapped so the picked name and type are what the server sees.
+          const file = new FsFile(asset.uri);
+          form.append("file", { name: asset.name, type, bytes: () => file.bytes() } as unknown as Blob);
+        }
         if (messageId) form.append("messageId", messageId);
 
         const token = await getAccessToken();
@@ -608,10 +617,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [userId, uploadAttachment],
   );
 
-  const sendRequestMessage = useCallback(async (requestId: string, text: string) => {
+  const sendRequestMessage = useCallback(async (requestId: string, text: string, forAttachment = false) => {
     try {
       const { data } = await apiClient.post<RequestMessage>(`/requests/${requestId}/messages`, {
         text,
+        forAttachment,
       });
       setRequests((prev) =>
         prev.map((r) => (r.id === requestId ? { ...r, messages: [...r.messages, data] } : r)),

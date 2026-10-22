@@ -23,6 +23,20 @@ function extensionToMimeType(name: string): string {
       return "image/heic";
     case "webp":
       return "image/webp";
+    case "pdf":
+      return "application/pdf";
+    case "doc":
+      return "application/msword";
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "xls":
+      return "application/vnd.ms-excel";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    case "txt":
+      return "text/plain";
+    case "csv":
+      return "text/csv";
     default:
       return "application/octet-stream";
   }
@@ -61,7 +75,11 @@ export async function pickDocumentAttachment(): Promise<PickedAsset | null> {
   return {
     uri: asset.uri,
     name: asset.name,
-    mimeType: asset.mimeType ?? extensionToMimeType(asset.name),
+    // Some pickers report no type, or a generic one, for PDFs and Word files.
+    mimeType:
+      asset.mimeType && asset.mimeType !== "application/octet-stream"
+        ? asset.mimeType
+        : extensionToMimeType(asset.name),
     size: asset.size ?? null,
   };
 }

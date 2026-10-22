@@ -1,11 +1,12 @@
-import React from "react";
-import { Linking, Pressable, Text, View } from "react-native";
+import React, { useState } from "react";
+import { Modal, Platform, Pressable, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { File01Icon } from "@hugeicons/core-free-icons";
 import { RequestAttachment, RequestMessage } from "@/lib/types";
 import { formatClock } from "@/lib/format";
-import { isPdf, openDocument } from "@/lib/documents";
+import { isDocx, isPdf, openDocument } from "@/lib/documents";
+import PdfThumb from "@/components/PdfThumb";
 
 const SENDER_LABEL: Record<RequestMessage["sender"], string> = {
   customer: "You",
@@ -13,35 +14,59 @@ const SENDER_LABEL: Record<RequestMessage["sender"], string> = {
   ai: "Assistant",
 };
 
+const THUMB_WIDTH = 120;
+
+/** A document as a small card: a picture of it (image, or the first page of a PDF on web) over its name. */
 function AttachmentChip({ attachment }: { attachment: RequestAttachment }) {
   const isImage = attachment.fileType?.startsWith("image/");
+  const pdf = isPdf(attachment.fileType, attachment.fileName);
+  const docx = isDocx(attachment.fileType, attachment.fileName);
+  const [viewingImage, setViewingImage] = useState(false);
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const label = docx ? "DOCX" : pdf ? "PDF" : (attachment.fileName.split(".").pop()?.toUpperCase().slice(0, 4) ?? "FILE");
+  // Native has no PDF renderer, so only web gets a real first-page picture.
+  const showPdfThumb = pdf && Platform.OS === "web" && !thumbFailed;
+
   return (
-    <Pressable
-      onPress={() =>
-        isImage
-          ? Linking.openURL(attachment.fileUrl)
-          : openDocument(attachment.fileUrl, attachment.fileName, attachment.fileType)
-      }
-      className="mt-2 flex-row items-center gap-2 self-start rounded-2xl border border-neutral-200 bg-white px-2.5 py-2"
-    >
-      {isImage ? (
-        <Image
-          source={{ uri: attachment.fileUrl }}
-          style={{ width: 32, height: 32, borderRadius: 8 }}
-          contentFit="cover"
-        />
-      ) : (
-        <View className="h-8 w-8 items-center justify-center rounded-lg bg-neutral-100">
-          <HugeiconsIcon icon={File01Icon} size={15} color="#525252" />
+    <>
+      <Pressable
+        onPress={() =>
+          isImage ? setViewingImage(true) : openDocument(attachment.fileUrl, attachment.fileName, attachment.fileType)
+        }
+        style={{ width: THUMB_WIDTH }}
+        className="mt-2 overflow-hidden rounded-2xl border border-neutral-200 bg-white"
+      >
+        <View style={{ height: 150 }} className="items-center justify-start overflow-hidden bg-neutral-100">
+          {isImage ? (
+            <Image source={{ uri: attachment.fileUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+          ) : showPdfThumb ? (
+            <PdfThumb url={attachment.fileUrl} width={THUMB_WIDTH} onFail={() => setThumbFailed(true)} />
+          ) : (
+            <View className="h-full items-center justify-center gap-1">
+              <HugeiconsIcon icon={File01Icon} size={28} color="#737373" />
+              <Text className="font-manrope-bold text-[11px] text-neutral-500">{label}</Text>
+            </View>
+          )}
         </View>
+        <Text className="px-2.5 py-2 font-manrope-semibold text-[11px] text-neutral-700" numberOfLines={1}>
+          {attachment.fileName}
+        </Text>
+      </Pressable>
+
+      {isImage && (
+        <Modal visible={viewingImage} transparent animationType="fade" onRequestClose={() => setViewingImage(false)}>
+          <Pressable
+            onPress={() => setViewingImage(false)}
+            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", padding: 16 }}
+          >
+            <Image source={{ uri: attachment.fileUrl }} style={{ width: "100%", height: "80%" }} contentFit="contain" />
+            <Text className="mt-3 text-center font-manrope-semibold text-[12px] text-white" numberOfLines={1}>
+              {attachment.fileName}
+            </Text>
+          </Pressable>
+        </Modal>
       )}
-      <Text className="max-w-[160px] font-manrope-semibold text-[12px] text-neutral-700" numberOfLines={1}>
-        {attachment.fileName}
-      </Text>
-      {isPdf(attachment.fileType, attachment.fileName) && (
-        <Text className="font-manrope-bold text-[10px] text-neutral-400">PDF</Text>
-      )}
-    </Pressable>
+    </>
   );
 }
 
