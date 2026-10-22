@@ -59,7 +59,7 @@ export default function RequestDetail() {
         onPress: async () => {
           const asset = await pickImageAttachment();
           if (!asset) return;
-          const message = await sendRequestMessage(request.id, "");
+          const message = await sendRequestMessage(request.id, "", true);
           if (message) await addRequestAttachment(request.id, message.id, asset);
         },
       },
@@ -68,7 +68,7 @@ export default function RequestDetail() {
         onPress: async () => {
           const asset = await pickDocumentAttachment();
           if (!asset) return;
-          const message = await sendRequestMessage(request.id, "");
+          const message = await sendRequestMessage(request.id, "", true);
           if (message) await addRequestAttachment(request.id, message.id, asset);
         },
       },

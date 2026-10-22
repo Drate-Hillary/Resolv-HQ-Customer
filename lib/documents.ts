@@ -3,7 +3,15 @@ import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as WebBrowser from "expo-web-browser";
 import { apiClient, apiErrorMessage } from "@/backend/api-client";
+import { showPdf } from "./pdf-viewer";
 import { dismissToast, toast } from "./toast";
+
+export function isDocx(fileType?: string | null, fileName?: string | null): boolean {
+  return (
+    fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    /\.docx$/i.test(fileName ?? "")
+  );
+}
 
 export function isPdf(fileType?: string | null, fileName?: string | null): boolean {
   return fileType === "application/pdf" || /\.pdf$/i.test(fileName ?? "") || fileType === "pdf";
@@ -21,6 +29,15 @@ function safeName(name: string, fallbackExt: string): string {
  */
 export async function openDocument(url: string, fileName: string, mimeType?: string | null): Promise<void> {
   const pdf = isPdf(mimeType, fileName);
+  // On web, PDFs open in the in-app reader (react-pdf) instead of a new tab.
+  if (Platform.OS === "web" && pdf) {
+    showPdf({ url, name: fileName });
+    return;
+  }
+  if (Platform.OS === "web" && isDocx(mimeType, fileName)) {
+    showPdf({ url, name: fileName, kind: "docx" });
+    return;
+  }
   const loadingToast = toast.info("Opening document…", fileName);
   try {
     if (Platform.OS === "web" || !(await Sharing.isAvailableAsync())) {

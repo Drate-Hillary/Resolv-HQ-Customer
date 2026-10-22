@@ -5,7 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native";
 import { File01Icon } from "@hugeicons/core-free-icons";
 import { RequestAttachment, RequestMessage } from "@/lib/types";
 import { formatClock } from "@/lib/format";
-import { isPdf, openDocument } from "@/lib/documents";
+import { isDocx, isPdf, openDocument } from "@/lib/documents";
 
 const SENDER_LABEL: Record<RequestMessage["sender"], string> = {
   customer: "You",
@@ -40,6 +40,9 @@ function AttachmentChip({ attachment }: { attachment: RequestAttachment }) {
       </Text>
       {isPdf(attachment.fileType, attachment.fileName) && (
         <Text className="font-manrope-bold text-[10px] text-neutral-400">PDF</Text>
+      )}
+      {isDocx(attachment.fileType, attachment.fileName) && (
+        <Text className="font-manrope-bold text-[10px] text-neutral-400">DOCX</Text>
       )}
     </Pressable>
   );
