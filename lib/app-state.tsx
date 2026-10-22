@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { AppState, Platform } from "react-native";
+import { File as FsFile } from "expo-file-system";
 import * as Linking from "expo-linking";
 import { apiBaseUrl, apiClient, apiErrorMessage, getAccessToken } from "../backend/api-client";
 import { toast } from "./toast";
@@ -522,7 +523,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           const blob = await (await fetch(asset.uri)).blob();
           form.append("file", new File([blob], asset.name, { type }));
         } else {
-          form.append("file", { uri: asset.uri, name: asset.name, type } as unknown as Blob);
+          // Expo's fetch only accepts Blob-like parts (with bytes()); the older {uri, name, type}
+          // shape throws "Unsupported FormDataPart implementation". expo-file-system's File is
+          // Blob-like, wrapped so the picked name and type are what the server sees.
+          const file = new FsFile(asset.uri);
+          form.append("file", { name: asset.name, type, bytes: () => file.bytes() } as unknown as Blob);
         }
         if (messageId) form.append("messageId", messageId);
 
