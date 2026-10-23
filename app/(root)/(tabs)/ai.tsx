@@ -23,6 +23,7 @@ import { ChatMessage } from "@/lib/types";
 import ChatBubble from "@/components/ChatBubble";
 import IconButton from "@/components/ui/IconButton";
 import AnimatedPressable from "@/components/ui/AnimatedPressable";
+import ModelPicker from "@/components/ModelPicker";
 
 /** Keep in step with MAX_MESSAGES_PER_CONVERSATION in resolv-hq-backend/src/routes/chat.ts. */
 const MAX_CHAT_MESSAGES = 50;
@@ -144,6 +145,10 @@ export default function AiAssistant() {
               </AnimatedPressable>
             </View>
           ) : (
+          <>
+          <View className="mb-2 flex-row">
+            <ModelPicker />
+          </View>
           <View className="flex-row items-end gap-1 rounded-[28px] border border-neutral-200 bg-white py-1.5 pl-4 pr-1.5 shadow-sm">
             <TextInput
               value={draft}
@@ -173,6 +178,7 @@ export default function AiAssistant() {
               <HugeiconsIcon icon={ArrowUp02Icon} size={18} color="#ffffff" strokeWidth={2.25} />
             </AnimatedPressable>
           </View>
+          </>
           )}
         </View>
       </KeyboardAvoidingView>

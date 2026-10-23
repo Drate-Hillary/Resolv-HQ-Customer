@@ -108,6 +108,9 @@ interface AppStateShape {
   activeConversationId: string | null;
   conversations: AiConversationSummary[];
   sendChatMessage: (text: string) => Promise<void>;
+  /** The model chosen for the AI chat; null lets the system choose. */
+  selectedModelId: string | null;
+  setSelectedModelId: (id: string | null) => void;
   rateChatMessage: (id: string, feedback: "up" | "down") => Promise<void>;
   resetChat: () => void;
   loadConversation: (id: string) => Promise<void>;
@@ -212,6 +215,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [memoryFacts, setMemoryFacts] = useState<MemoryFact[]>([]);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AiConversationSummary[]>([]);
 
@@ -854,7 +858,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           assistantMessage: ChatMessageOut;
           sources?: ChatSource[];
           suggestions?: string[];
-        }>(`/chat/conversations/${conversationId}/messages`, { content: text });
+        }>(`/chat/conversations/${conversationId}/messages`, {
+          content: text,
+          ...(selectedModelId ? { providerId: selectedModelId } : {}),
+        });
 
         setChatMessages((prev) =>
           prev.map((m) => {
@@ -885,7 +892,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         );
       }
     },
-    [activeConversationId, userId, refreshConversations, content],
+    [activeConversationId, userId, refreshConversations, content, selectedModelId],
   );
 
   const rateChatMessage = useCallback(async (id: string, feedback: "up" | "down") => {
@@ -988,6 +995,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     activeConversationId,
     conversations,
     sendChatMessage,
+    selectedModelId,
+    setSelectedModelId,
     rateChatMessage,
     resetChat,
     loadConversation,
