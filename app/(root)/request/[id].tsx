@@ -15,6 +15,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native";
 import { Attachment01Icon, SendIcon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { useAppState } from "@/lib/app-state";
 import { pickDocumentAttachment, pickImageAttachment } from "@/lib/attachments";
+import type { RequestResponseMode } from "@/lib/types";
 import ScreenHeader from "@/components/ui/ScreenHeader";
 import StatusPill from "@/components/ui/StatusPill";
 import Card from "@/components/ui/Card";
@@ -26,8 +27,15 @@ import AnimatedPressable from "@/components/ui/AnimatedPressable";
 
 export default function RequestDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getRequest, loadRequestDetail, sendRequestMessage, addRequestAttachment, submitRequestFeedback, content } =
-    useAppState();
+  const {
+    getRequest,
+    loadRequestDetail,
+    sendRequestMessage,
+    addRequestAttachment,
+    submitRequestFeedback,
+    setRequestResponseMode,
+    content,
+  } = useAppState();
   const request = getRequest(String(id));
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -35,6 +43,7 @@ export default function RequestDetail() {
   const [comment, setComment] = useState("");
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [switchingMode, setSwitchingMode] = useState(false);
 
   useEffect(() => {
     if (id) loadRequestDetail(String(id));
@@ -83,6 +92,15 @@ export default function RequestDetail() {
     setSubmittingFeedback(false);
     if (!error) setSubmitted(true);
   };
+
+  const handleModeChange = async (mode: RequestResponseMode) => {
+    if (mode === request.responseMode || switchingMode) return;
+    setSwitchingMode(true);
+    await setRequestResponseMode(request.id, mode);
+    setSwitchingMode(false);
+  };
+
+  const canChangeMode = request.status !== "completed" && !request.closedAt;
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
@@ -165,6 +183,42 @@ export default function RequestDetail() {
               </Card>
             )}
 
+            <Card className="mb-4">
+              <Text className="font-manrope-bold text-[13px] text-black">RESPONSE MODE</Text>
+              <View className="mt-2 flex-row gap-2">
+                {([
+                  { mode: "human", label: "Human" },
+                  { mode: "ai", label: "AI" },
+                ] as const).map(({ mode, label }) => {
+                  const active = request.responseMode === mode;
+                  return (
+                    <AnimatedPressable
+                      key={mode}
+                      scaleTo={0.97}
+                      onPress={() => handleModeChange(mode)}
+                      disabled={!canChangeMode || switchingMode}
+                      className={`flex-1 items-center rounded-full border px-4 py-2 ${
+                        active ? "border-black bg-black" : "border-neutral-200 bg-white"
+                      } ${!canChangeMode || switchingMode ? "opacity-60" : ""}`}
+                    >
+                      <Text className={`font-manrope-bold text-[12px] ${active ? "text-white" : "text-neutral-700"}`}>
+                        {label}
+                      </Text>
+                    </AnimatedPressable>
+                  );
+                })}
+              </View>
+              <Text className="mt-2 font-manrope-medium text-[11px] leading-4 text-neutral-500">
+                {request.responseMode === "ai"
+                  ? "The AI assistant will reply in this ticket. You can switch to Human mode at any time."
+                  : "A support team member will reply. Switch to AI mode if you want an AI response instead."}
+              </Text>
+              {!canChangeMode && (
+                <Text className="mt-1 font-manrope-medium text-[11px] text-neutral-400">
+                  Response mode is locked because this ticket is closed.
+                </Text>
+              )}
+            </Card>
             <Text className="mb-2 font-manrope-bold text-[13px] text-neutral-400">
               MESSAGES
             </Text>
@@ -190,7 +244,7 @@ export default function RequestDetail() {
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Send a message..."
+              placeholder={request.responseMode === "ai" ? "Message the AI assistant..." : "Message the support team..."}
               placeholderTextColor="#A3A3A3"
               className="flex-1 px-3 font-manrope-medium text-[14px] text-black"
               onSubmitEditing={handleSend}

@@ -58,7 +58,7 @@ export default function AgentTicket() {
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || request.responseMode !== "human") return;
     setSending(true);
     setDraft("");
     await sendSupportMessage(request.id, text);
@@ -134,6 +134,18 @@ export default function AgentTicket() {
               <StatusTimeline steps={request.timeline} currentStatus={request.status} />
             </Card>
 
+            <Text className="mb-2 font-manrope-bold text-[13px] text-neutral-400">RESPONSE MODE</Text>
+            <Card className="mb-4">
+              <Text className="font-manrope-bold text-[14px] text-black">
+                {request.responseMode === "ai" ? "AI assistant" : "Human support"}
+              </Text>
+              <Text className="mt-1 font-manrope-medium text-[12px] leading-5 text-neutral-500">
+                {request.responseMode === "ai"
+                  ? "The customer has chosen AI responses. They can switch to Human mode to request a staff reply."
+                  : "This ticket is routed to the support team for a staff reply."}
+              </Text>
+            </Card>
+
             {request.aiSummary.length > 0 && (
               <>
                 <Text className="mb-2 font-manrope-bold text-[13px] text-neutral-400">AI SUMMARY</Text>
@@ -162,19 +174,25 @@ export default function AgentTicket() {
         </ScrollView>
 
         <View className="border-t border-neutral-100 px-4 pb-8 pt-3">
-          <View className="flex-row items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1.5">
+          {request.responseMode === "ai" ? (
+            <Text className="pb-2 text-center font-manrope-medium text-[12px] text-neutral-500">
+              Staff replies are paused while this ticket is in AI mode.
+            </Text>
+          ) : null}
+          <View className={`flex-row items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1.5 ${request.responseMode === "ai" ? "opacity-50" : ""}`}>
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Reply as support..."
+              placeholder={request.responseMode === "ai" ? "AI mode is active" : "Reply as support..."}
               placeholderTextColor="#A3A3A3"
               className="flex-1 px-3 font-manrope-medium text-[14px] text-black"
               onSubmitEditing={handleSend}
+              editable={request.responseMode === "human"}
             />
             <AnimatedPressable
               scaleTo={0.85}
               onPress={handleSend}
-              disabled={!draft.trim() || sending}
+              disabled={!draft.trim() || sending || request.responseMode !== "human"}
               className={`h-9 w-9 items-center justify-center rounded-full ${
                 draft.trim() ? "bg-black" : "bg-neutral-200"
               }`}
