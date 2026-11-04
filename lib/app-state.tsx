@@ -26,6 +26,7 @@ import {
   RequestAttachment,
   RequestCategoryOption,
   RequestMessage,
+  RequestResponseMode,
   RequestStatus,
   ServiceRequest,
   UserProfile,
@@ -76,8 +77,17 @@ interface AppStateShape {
     description: string,
     categoryId: string | null,
     attachments?: PickedAsset[],
+    responseMode?: RequestResponseMode,
   ) => Promise<ServiceRequest | null>;
-  sendRequestMessage: (requestId: string, text: string, forAttachment?: boolean) => Promise<RequestMessage | null>;
+  setRequestResponseMode: (
+    requestId: string,
+    responseMode: RequestResponseMode,
+  ) => Promise<{ error: string | null }>;
+  sendRequestMessage: (
+    requestId: string,
+    text: string,
+    forAttachment?: boolean,
+  ) => Promise<RequestMessage | null>;
   submitRequestFeedback: (
     requestId: string,
     rating: number,
@@ -584,14 +594,17 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       description: string,
       categoryId: string | null,
       attachments: PickedAsset[] = [],
+      responseMode: RequestResponseMode = "human",
     ): Promise<ServiceRequest | null> => {
       if (!userId) return null;
       try {
         // Category/priority classification now happens server-side.
-        const { data } = await apiClient.post<ServiceRequest>("/requests", {
+        const { data: response } = await apiClient.post<ServiceRequest & { aiError?: string }>("/requests", {
           description,
           categoryId,
+          responseMode,
         });
+        const { aiError, ...data } = response;
 
         const firstMessage = data.messages[0];
         const uploaded: RequestAttachment[] = [];
@@ -604,13 +617,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
         const newRequest: ServiceRequest = {
           ...data,
-          messages: firstMessage
-            ? [{ ...firstMessage, attachments: uploaded }]
-            : data.messages,
+          messages: data.messages.map((message) =>
+            message.id === firstMessage?.id ? { ...message, attachments: uploaded } : message,
+          ),
           attachments: uploaded,
           detailsLoaded: true,
         };
         setRequests((prev) => [newRequest, ...prev]);
+        if (aiError) toast.error("AI assistant couldn't reply", aiError);
         return newRequest;
       } catch (e) {
         console.warn("Failed to create request", apiErrorMessage(e));
@@ -621,22 +635,64 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [userId, uploadAttachment],
   );
 
-  const sendRequestMessage = useCallback(async (requestId: string, text: string, forAttachment = false) => {
-    try {
-      const { data } = await apiClient.post<RequestMessage>(`/requests/${requestId}/messages`, {
-        text,
-        forAttachment,
-      });
-      setRequests((prev) =>
-        prev.map((r) => (r.id === requestId ? { ...r, messages: [...r.messages, data] } : r)),
-      );
-      return data;
-    } catch (e) {
-      console.warn("Failed to send message", apiErrorMessage(e));
-      toast.error("Message not sent", apiErrorMessage(e));
-      return null;
-    }
-  }, []);
+  const setRequestResponseMode = useCallback(
+    async (requestId: string, responseMode: RequestResponseMode) => {
+      try {
+        const { data: response } = await apiClient.patch<ServiceRequest & { aiError?: string }>(
+          `/requests/${requestId}/response-mode`,
+          { responseMode },
+        );
+        const { aiError, ...data } = response;
+        setRequests((prev) =>
+          prev.map((request) =>
+            request.id === requestId ? { ...data, detailsLoaded: true } : request,
+          ),
+        );
+        if (aiError) toast.error("AI assistant couldn't reply", aiError);
+        return { error: null };
+      } catch (e) {
+        const message = apiErrorMessage(e);
+        console.warn("Failed to change ticket response mode", message);
+        toast.error("Couldn't change the response mode", message);
+        return { error: message };
+      }
+    },
+    [],
+  );
+
+  const sendRequestMessage = useCallback(
+    async (requestId: string, text: string, forAttachment = false) => {
+      try {
+        const { data } = await apiClient.post<
+          RequestMessage & { aiReply?: RequestMessage; aiError?: string }
+        >(`/requests/${requestId}/messages`, { text, forAttachment });
+        const { aiReply, aiError, ...message } = data;
+        setRequests((prev) =>
+          prev.map((r) =>
+            r.id === requestId
+              ? {
+                  ...r,
+                  messages: [
+                    ...r.messages,
+                    message,
+                    ...(aiReply && !r.messages.some((item) => item.id === aiReply.id)
+                      ? [aiReply]
+                      : []),
+                  ],
+                }
+              : r,
+          ),
+        );
+        if (aiError) toast.error("AI assistant couldn't reply", aiError);
+        return message;
+      } catch (e) {
+        console.warn("Failed to send message", apiErrorMessage(e));
+        toast.error("Message not sent", apiErrorMessage(e));
+        return null;
+      }
+    },
+    [],
+  );
 
   const submitRequestFeedback = useCallback(
     async (requestId: string, rating: number, comment?: string) => {
@@ -683,14 +739,29 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     async (requestId: string, text: string) => {
       if (!userId) return null;
       try {
-        const { data } = await apiClient.post<RequestMessage>(
+        const { data } = await apiClient.post<
+          RequestMessage & { aiReply?: RequestMessage; aiError?: string }
+        >(
           `/requests/${requestId}/messages`,
           { text },
         );
+        const { aiReply, aiError, ...message } = data;
         setRequests((prev) =>
-          prev.map((r) => (r.id === requestId ? { ...r, messages: [...r.messages, data] } : r)),
+          prev.map((r) =>
+            r.id === requestId
+              ? {
+                  ...r,
+                  messages: [
+                    ...r.messages,
+                    message,
+                    ...(aiReply && !r.messages.some((item) => item.id === aiReply.id) ? [aiReply] : []),
+                  ],
+                }
+              : r,
+          ),
         );
-        return data;
+        if (aiError) toast.error("AI assistant couldn't reply", aiError);
+        return message;
       } catch (e) {
         console.warn("Failed to send support message", apiErrorMessage(e));
         toast.error("Message not sent", apiErrorMessage(e));
@@ -989,6 +1060,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     getRequest,
     loadRequestDetail,
     createRequest,
+    setRequestResponseMode,
     sendRequestMessage,
     submitRequestFeedback,
     addRequestAttachment,

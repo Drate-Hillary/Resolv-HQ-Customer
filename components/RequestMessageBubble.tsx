@@ -12,6 +12,7 @@ const SENDER_LABEL: Record<RequestMessage["sender"], string> = {
   customer: "You",
   support: "Support Team",
   ai: "Assistant",
+  system: "System",
 };
 
 const THUMB_WIDTH = 120;

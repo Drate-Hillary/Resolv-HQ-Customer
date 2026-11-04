@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -24,7 +25,7 @@ import {
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useAppState } from "@/lib/app-state";
 import { apiClient, apiErrorMessage } from "@/backend/api-client";
-import { RequestCategoryOption } from "@/lib/types";
+import type { RequestCategoryOption, RequestResponseMode } from "@/lib/types";
 import { pickDocumentAttachment, pickImageAttachment, PickedAsset } from "@/lib/attachments";
 import IconButton from "@/components/ui/IconButton";
 import Button from "@/components/ui/Button";
@@ -62,6 +63,7 @@ export default function CreateRequest() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [attachments, setAttachments] = useState<PickedAsset[]>([]);
+  const [responseMode, setResponseMode] = useState<RequestResponseMode>("human");
 
   const [classification, setClassification] = useState<Classification | null>(null);
 
@@ -121,7 +123,7 @@ export default function CreateRequest() {
     if (!description.trim() || submitting) return;
     setError(null);
     setSubmitting(true);
-    const created = await createRequest(description.trim(), effectiveCategoryId, attachments);
+    const created = await createRequest(description.trim(), effectiveCategoryId, attachments, responseMode);
     setSubmitting(false);
     if (!created) {
       setError("Something went wrong submitting your request. Please try again.");
@@ -143,7 +145,7 @@ export default function CreateRequest() {
           <IconButton icon={Cancel01Icon} onPress={() => router.back()} />
         </View>
 
-        <View className="flex-1 px-6 pt-4">
+        <ScrollView className="flex-1 px-6 pt-4" keyboardShouldPersistTaps="handled">
           <Text className="font-manrope-bold text-[14px] text-black">
             What do you need help with?
           </Text>
@@ -156,6 +158,35 @@ export default function CreateRequest() {
             autoFocus
             className="mt-3 min-h-[140px] rounded-3xl border border-neutral-200 bg-neutral-50 px-4 py-4 font-manrope-medium text-[15px] leading-6 text-black"
           />
+
+          <View className="mt-5">
+            <Text className="font-manrope-bold text-[14px] text-black">
+              Who should respond?
+            </Text>
+            <View className="mt-2 flex-row gap-3">
+              {([
+                { mode: "human", title: "Human support", detail: "A staff member will reply" },
+                { mode: "ai", title: "AI assistant", detail: "Get an AI response in this ticket" },
+              ] as const).map(({ mode, title, detail }) => {
+                const active = responseMode === mode;
+                return (
+                  <AnimatedPressable
+                    key={mode}
+                    scaleTo={0.98}
+                    onPress={() => setResponseMode(mode)}
+                    className={`flex-1 rounded-2xl border px-3 py-3 ${
+                      active ? "border-black bg-neutral-50" : "border-neutral-200 bg-white"
+                    }`}
+                  >
+                    <Text className="font-manrope-bold text-[12px] text-black">{title}</Text>
+                    <Text className="mt-1 font-manrope-medium text-[10px] leading-4 text-neutral-500">
+                      {detail}
+                    </Text>
+                  </AnimatedPressable>
+                );
+              })}
+            </View>
+          </View>
 
           {classification ? (
             <Animated.View entering={FadeIn.duration(300)} className="mt-5">
@@ -240,7 +271,7 @@ export default function CreateRequest() {
           {error && (
             <Text className="mt-4 font-manrope-medium text-[12px] text-red-600">{error}</Text>
           )}
-        </View>
+        </ScrollView>
 
         <View className="px-6 pb-8 pt-3">
           <Button

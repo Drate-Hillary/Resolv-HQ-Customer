@@ -134,7 +134,7 @@ function DocxViewer({ url, name }: { url: string; name: string }) {
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: 20, fontSize: 14, lineHeight: 1.6 }}>
           {error ? (
-            <p style={{ textAlign: "center", color: "#b91c1c", fontSize: 13 }}>Couldn't open this document: {error}</p>
+            <p style={{ textAlign: "center", color: "#b91c1c", fontSize: 13 }}>Couldn&apos;t open this document: {error}</p>
           ) : html === null ? (
             <p style={{ textAlign: "center", color: "#737373", fontSize: 12 }}>Loading document…</p>
           ) : (

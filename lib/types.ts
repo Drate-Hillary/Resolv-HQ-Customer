@@ -6,6 +6,7 @@ export type RequestStatus =
   | "needs_info";
 
 export type RequestPriority = "low" | "normal" | "high";
+export type RequestResponseMode = "human" | "ai";
 
 export interface TimelineStep {
   key: RequestStatus;
@@ -25,7 +26,7 @@ export interface RequestAttachment {
 
 export interface RequestMessage {
   id: string;
-  sender: "customer" | "support" | "ai";
+  sender: "customer" | "support" | "ai" | "system";
   text: string;
   timestamp: string;
   attachments?: RequestAttachment[];
@@ -42,7 +43,9 @@ export interface ServiceRequest {
   priority: RequestPriority;
   createdAt: string;
   updatedAt: string;
+  closedAt?: string | null;
   aiSummary: string;
+  responseMode: RequestResponseMode;
   messages: RequestMessage[];
   timeline: TimelineStep[];
   csat?: { rating: number; comment?: string } | null;
