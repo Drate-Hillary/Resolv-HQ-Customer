@@ -11,6 +11,7 @@ const SENDER_LABEL: Record<RequestMessage["sender"], string> = {
   customer: "You",
   support: "Support Team",
   ai: "Assistant",
+  system: "System",
 };
 
 function AttachmentChip({ attachment }: { attachment: RequestAttachment }) {
